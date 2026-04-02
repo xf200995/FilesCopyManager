@@ -810,6 +810,36 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
     );
   }
 
+  // 显示大图对话框
+  void _showImageDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Image.asset(
+                'lib/res/logo_check.png',
+                fit: BoxFit.contain,
+                width: 300,
+                height: 300,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16.0),
+              child: TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('关闭'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // 确保配置列表不为空
@@ -827,9 +857,28 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
     
     return Scaffold(
       appBar: AppBar(
-        title: const Text('文件拷贝管理器'),
         backgroundColor: MorandiColors.buttonPrimary.color,
         foregroundColor: MorandiColors.buttonText.color,
+        title: Row(
+          children: [
+            const Text('文件拷贝管理器'),
+            const SizedBox(width: 10),
+            GestureDetector(
+              onTap: () => _showImageDialog(),
+              child: SizedBox(
+                height: kToolbarHeight * 0.8,
+                width: kToolbarHeight * 0.8,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: Image.asset(
+                  'lib/res/logo_check.png',
+                  fit: BoxFit.contain,
+                ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
       body: Container(
         padding: const EdgeInsets.all(16.0),
