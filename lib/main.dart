@@ -6,6 +6,234 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as path;
 import 'colors.dart';
 
+// 屏蔽路径子界面
+class ExcludedPathsScreen extends StatefulWidget {
+  final CopyConfig config;
+  final VoidCallback onConfigChanged;
+
+  const ExcludedPathsScreen({
+    Key? key,
+    required this.config,
+    required this.onConfigChanged,
+  }) : super(key: key);
+
+  @override
+  State<ExcludedPathsScreen> createState() => _ExcludedPathsScreenState();
+}
+
+class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
+  Future<void> _addExcludedPath() async {
+    final results = await getDirectoryPaths(initialDirectory: widget.config.sourceDirectory);
+    if (results.isNotEmpty) {
+      final validPaths = results
+          .where((path) => path != null && !widget.config.excludedPaths.contains(path))
+          .cast<String>()
+          .toList();
+      if (validPaths.isNotEmpty) {
+        setState(() {
+          widget.config.excludedPaths.addAll(validPaths);
+        });
+        widget.onConfigChanged();
+      }
+    }
+  }
+
+  Future<void> _addExcludedFile() async {
+    final results = await openFiles(initialDirectory: widget.config.sourceDirectory);
+    if (results.isNotEmpty) {
+      final validPaths = results
+          .map((xFile) => xFile.path)
+          .where((path) => !widget.config.excludedPaths.contains(path))
+          .toList();
+      if (validPaths.isNotEmpty) {
+        setState(() {
+          widget.config.excludedPaths.addAll(validPaths);
+        });
+        widget.onConfigChanged();
+      }
+    }
+  }
+
+  void _removeExcludedPath(int index) {
+    setState(() {
+      widget.config.excludedPaths.removeAt(index);
+    });
+    widget.onConfigChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('屏蔽路径管理'),
+        backgroundColor: MorandiColors.buttonPrimary.color,
+        foregroundColor: MorandiColors.buttonText.color,
+      ),
+      body: Container(
+        padding: const EdgeInsets.all(16.0),
+        decoration: BoxDecoration(
+          color: Colors.white,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '配置: ${widget.config.name}',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: MorandiColors.textPrimary.color,
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // 操作按钮
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _buildActionButton(
+                  icon: Icons.folder,
+                  label: '添加目录',
+                  onPressed: _addExcludedPath,
+                ),
+                const SizedBox(width: 8),
+                _buildActionButton(
+                  icon: Icons.file_copy,
+                  label: '添加文件',
+                  onPressed: _addExcludedFile,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // 屏蔽路径列表
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: MorandiColors.excludeArea.color,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: MorandiColors.border.color),
+                ),
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '屏蔽路径列表',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: MorandiColors.textPrimary.color,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    
+                    if (widget.config.excludedPaths.isEmpty)
+                      Expanded(
+                        child: Center(
+                          child: Container(
+                            padding: const EdgeInsets.all(32),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: MorandiColors.border.color),
+                            ),
+                            child: Text(
+                              '没有设置屏蔽路径',
+                              style: TextStyle(
+                                fontSize: 16,
+                                color: MorandiColors.textSecondary.color,
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: widget.config.excludedPaths.length,
+                          itemBuilder: (context, index) {
+                            final excludedPath = widget.config.excludedPaths[index];
+                            final relativePath = widget.config.sourceDirectory != null
+                                ? path.relative(excludedPath, from: widget.config.sourceDirectory!)
+                                : excludedPath;
+                            final fileName = path.basename(excludedPath);
+                            
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              elevation: 2,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: ListTile(
+                                leading: Icon(
+                                  FileSystemEntity.typeSync(excludedPath) == FileSystemEntityType.directory
+                                      ? Icons.folder
+                                      : Icons.file_copy,
+                                  color: MorandiColors.buttonPrimary.color,
+                                ),
+                                title: Text(
+                                  fileName,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w500,
+                                    color: MorandiColors.textPrimary.color,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  relativePath,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: MorandiColors.textSecondary.color,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.delete, size: 20),
+                                  onPressed: () => _removeExcludedPath(index),
+                                  color: Colors.red[400],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 构建操作按钮
+  Widget _buildActionButton({
+    required String label,
+    required VoidCallback onPressed,
+    IconData? icon,
+  }) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      icon: icon != null ? Icon(icon, size: 16) : null,
+      label: Text(label, style: const TextStyle(fontSize: 13)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: MorandiColors.buttonSecondary.color,
+        foregroundColor: MorandiColors.buttonText.color,
+        padding: EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 10,
+        ),
+        minimumSize: const Size(0, 0),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(6),
+        ),
+      ),
+    );
+  }
+}
+
 // 拷贝配置类
 class CopyConfig {
   String name;
@@ -288,6 +516,24 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
         _showErrorDialog('请选择源目录下的文件');
       }
     }
+  }
+
+  void _openExcludedPathsScreen() {
+    final currentConfig = _copyConfigs[_currentConfigIndex];
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ExcludedPathsScreen(
+          config: currentConfig,
+          onConfigChanged: () {
+            setState(() {
+              // 配置已在子界面中更新，这里只需要触发重绘
+            });
+            _saveSettings();
+          },
+        ),
+      ),
+    );
   }
 
   void _removeExcludedPath(int index) {
@@ -614,6 +860,12 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                         ),
                         Row(
                           children: [
+                            _buildActionButton(
+                              icon: Icons.visibility,
+                              label: '更好的查看',
+                              onPressed: () => _openExcludedPathsScreen(),
+                            ),
+                            const SizedBox(width: 8),
                             _buildActionButton(
                               icon: Icons.folder,
                               label: '添加目录',
