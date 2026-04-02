@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as path;
+import 'colors.dart';
 
 // 拷贝配置类
 class CopyConfig {
@@ -421,248 +422,410 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('文件拷贝管理器'),
+        backgroundColor: MorandiColors.buttonPrimary.color,
+        foregroundColor: MorandiColors.buttonText.color,
       ),
-      body: Padding(
+      body: Container(
         padding: const EdgeInsets.all(16.0),
+        decoration: BoxDecoration(
+          color: Colors.white,
+        ),
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 配置管理
-              const Text(
-                '拷贝配置',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: DropdownButtonFormField<int>(
-                      initialValue: _currentConfigIndex,
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        isDense: true,
-                      ),
-                      items: _copyConfigs.asMap().entries.map((entry) {
-                        return DropdownMenuItem<int>(
-                          value: entry.key,
-                          child: Text(entry.value.name),
-                        );
-                      }).toList(),
-                      onChanged: (value) {
-                        if (value != null) {
-                          setState(() {
-                            _currentConfigIndex = value;
-                            _updateControllers();
-                            _saveSettings();
-                          });
-                        }
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    onPressed: _showRenameDialog,
-                    icon: const Icon(Icons.edit, size: 16),
-                    label: const Text('重命名'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    onPressed: _addNewConfig,
-                    icon: const Icon(Icons.add, size: 16),
-                    label: const Text('新增'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton.icon(
-                    onPressed: () => _deleteConfig(_currentConfigIndex),
-                    icon: const Icon(Icons.delete, size: 16),
-                    label: const Text('删除'),
-                    style: ElevatedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                      backgroundColor: Colors.red,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              // 源目录选择
-              const Text(
-                '源目录',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _sourceController,
-                      onChanged: (value) {
-                        setState(() {
-                          currentConfig.sourceDirectory = value.trim();
-                        });
-                        _saveSettings();
-                      },
-                      decoration: InputDecoration(
-                        border: const OutlineInputBorder(),
-                        hintText: '请输入或选择源目录',
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        isDense: true,
-                      ),
-                      style: const TextStyle(fontSize: 14),
-                      readOnly: false,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _selectSourceDirectory,
-                    child: const Text('选择目录'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
-              // 目标目录选择
-              const Text(
-                '目标目录',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _destController,
-                      onChanged: (value) {
-                        setState(() {
-                          currentConfig.destinationDirectory = value.trim();
-                        });
-                        _saveSettings();
-                      },
-                      decoration: InputDecoration(
-                        border: const OutlineInputBorder(),
-                        hintText: '请输入或选择目标目录',
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        isDense: true,
-                      ),
-                      style: const TextStyle(fontSize: 14),
-                      readOnly: false,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    onPressed: _selectDestinationDirectory,
-                    child: const Text('选择目录'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
-              // 屏蔽路径设置
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    '屏蔽路径',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  Row(
-                    children: [
-                      ElevatedButton.icon(
-                        onPressed: _addExcludedPath,
-                        icon: const Icon(Icons.folder, size: 16),
-                        label: const Text('添加目录'),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton.icon(
-                        onPressed: _addExcludedFile,
-                        icon: const Icon(Icons.file_copy, size: 16),
-                        label: const Text('添加文件'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              if (currentConfig.excludedPaths.isEmpty)
-                const Text(
-                  '没有设置屏蔽路径',
-                  style: TextStyle(color: Colors.grey),
-                )
-              else
-                Container(
-                  constraints: const BoxConstraints(maxHeight: 200),
-                  child: ListView.builder(
-                    shrinkWrap: true,
-                    itemCount: currentConfig.excludedPaths.length,
-                    itemBuilder: (context, index) {
-                      final excludedPath = currentConfig.excludedPaths[index];
-                      final relativePath = currentConfig.sourceDirectory != null
-                          ? path.relative(excludedPath, from: currentConfig.sourceDirectory!)
-                          : excludedPath;
-                      return ListTile(
-                        title: Text(relativePath),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete),
-                          onPressed: () => _removeExcludedPath(index),
-                          color: Colors.red,
+              // 拷贝配置区
+              _buildSection(
+                title: '拷贝配置',
+                backgroundColor: MorandiColors.configArea.color,
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<int>(
+                            initialValue: _currentConfigIndex,
+                            decoration: InputDecoration(
+                              border: OutlineInputBorder(
+                                borderSide: BorderSide(color: MorandiColors.border.color),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              isDense: true,
+                              filled: true,
+                              fillColor: Colors.white,
+                            ),
+                            items: _copyConfigs.asMap().entries.map((entry) {
+                              return DropdownMenuItem<int>(
+                                value: entry.key,
+                                child: Text(
+                                  entry.value.name,
+                                  style: TextStyle(color: MorandiColors.textPrimary.color),
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              if (value != null) {
+                                setState(() {
+                                  _currentConfigIndex = value;
+                                  _updateControllers();
+                                  _saveSettings();
+                                });
+                              }
+                            },
+                            style: TextStyle(color: MorandiColors.textPrimary.color),
+                          ),
                         ),
-                      );
-                    },
-                  ),
-                ),
-              const SizedBox(height: 24),
-
-              // 删除目标目录选项
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Checkbox(
-                    value: currentConfig.shouldDeleteDestDir,
-                    onChanged: (value) {
-                      setState(() {
-                        currentConfig.shouldDeleteDestDir = value ?? false;
-                      });
-                      _saveSettings();
-                    },
-                  ),
-                  const Text('拷贝前删除目标目录下的所有文件'),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              // 拷贝按钮
-              Center(
-                child: ElevatedButton.icon(
-                  onPressed: _isCopying ? null : _copyFiles,
-                  icon: const Icon(Icons.copy),
-                  label: const Text('开始拷贝'),
-                  style: ElevatedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-                    textStyle: const TextStyle(fontSize: 18),
-                  ),
+                        const SizedBox(width: 8),
+                        _buildSmallButton(
+                          icon: Icons.edit,
+                          label: '重命名',
+                          onPressed: _showRenameDialog,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildSmallButton(
+                          icon: Icons.add,
+                          label: '新增',
+                          onPressed: _addNewConfig,
+                        ),
+                        const SizedBox(width: 8),
+                        _buildSmallButton(
+                          icon: Icons.delete,
+                          label: '删除',
+                          onPressed: () => _deleteConfig(_currentConfigIndex),
+                          isDanger: true,
+                        ),
+                      ],
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
 
-              // 拷贝状态
-              Center(
-                child: Text(
-                  _copyStatus,
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: _isCopying ? Colors.blue : Colors.green,
-                  ),
+              // 目录区
+              _buildSection(
+                title: '目录设置',
+                backgroundColor: MorandiColors.directoryArea.color,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 源目录选择
+                    const Text(
+                      '源目录',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _sourceController,
+                            onChanged: (value) {
+                              setState(() {
+                                currentConfig.sourceDirectory = value.trim();
+                              });
+                              _saveSettings();
+                            },
+                            decoration: InputDecoration(
+                              border: OutlineInputBorder(
+                                borderSide: BorderSide(color: MorandiColors.border.color),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              hintText: '请输入或选择源目录',
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              isDense: true,
+                              filled: true,
+                              fillColor: Colors.white,
+                            ),
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: MorandiColors.textPrimary.color,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildActionButton(
+                          label: '选择目录',
+                          onPressed: _selectSourceDirectory,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    // 目标目录选择
+                    const Text(
+                      '目标目录',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _destController,
+                            onChanged: (value) {
+                              setState(() {
+                                currentConfig.destinationDirectory = value.trim();
+                              });
+                              _saveSettings();
+                            },
+                            decoration: InputDecoration(
+                              border: OutlineInputBorder(
+                                borderSide: BorderSide(color: MorandiColors.border.color),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              hintText: '请输入或选择目标目录',
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                              isDense: true,
+                              filled: true,
+                              fillColor: Colors.white,
+                            ),
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: MorandiColors.textPrimary.color,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildActionButton(
+                          label: '选择目录',
+                          onPressed: _selectDestinationDirectory,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // 屏蔽路径区
+              _buildSection(
+                title: '屏蔽路径',
+                backgroundColor: MorandiColors.excludeArea.color,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          '设置需要屏蔽的文件或目录',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                        ),
+                        Row(
+                          children: [
+                            _buildActionButton(
+                              icon: Icons.folder,
+                              label: '添加目录',
+                              onPressed: _addExcludedPath,
+                            ),
+                            const SizedBox(width: 8),
+                            _buildActionButton(
+                              icon: Icons.file_copy,
+                              label: '添加文件',
+                              onPressed: _addExcludedFile,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    if (currentConfig.excludedPaths.isEmpty)
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: MorandiColors.border.color),
+                        ),
+                        child: Text(
+                          '没有设置屏蔽路径',
+                          style: TextStyle(color: MorandiColors.textSecondary.color),
+                        ),
+                      )
+                    else
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 200),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: MorandiColors.border.color),
+                        ),
+                        child: ListView.builder(
+                          shrinkWrap: true,
+                          itemCount: currentConfig.excludedPaths.length,
+                          itemBuilder: (context, index) {
+                            final excludedPath = currentConfig.excludedPaths[index];
+                            final relativePath = currentConfig.sourceDirectory != null
+                                ? path.relative(excludedPath, from: currentConfig.sourceDirectory!)
+                                : excludedPath;
+                            return ListTile(
+                              title: Text(
+                                relativePath,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: MorandiColors.textPrimary.color,
+                                ),
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.delete, size: 18),
+                                onPressed: () => _removeExcludedPath(index),
+                                color: Colors.red[400],
+                                padding: EdgeInsets.zero,
+                                constraints: const BoxConstraints(),
+                              ),
+                              dense: true,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // 开始拷贝执行区
+              _buildSection(
+                title: '执行拷贝',
+                backgroundColor: MorandiColors.executeArea.color,
+                child: Column(
+                  children: [
+                    // 删除目标目录选项
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Checkbox(
+                          value: currentConfig.shouldDeleteDestDir,
+                          onChanged: (value) {
+                            setState(() {
+                              currentConfig.shouldDeleteDestDir = value ?? false;
+                            });
+                            _saveSettings();
+                          },
+                          activeColor: MorandiColors.buttonPrimary.color,
+                          checkColor: MorandiColors.buttonText.color,
+                        ),
+                        Text(
+                          '拷贝前删除目标目录下的所有文件',
+                          style: TextStyle(color: MorandiColors.textPrimary.color),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // 拷贝按钮
+                    ElevatedButton.icon(
+                      onPressed: _isCopying ? null : _copyFiles,
+                      icon: const Icon(Icons.copy),
+                      label: const Text('开始拷贝', style: TextStyle(fontSize: 18)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: MorandiColors.buttonPrimary.color,
+                        foregroundColor: MorandiColors.buttonText.color,
+                        padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // 拷贝状态
+                    Text(
+                      _copyStatus,
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: _isCopying ? MorandiColors.buttonPrimary.color : Colors.green[600],
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+  
+  // 构建功能区块
+  Widget _buildSection({
+    required String title,
+    required Color backgroundColor,
+    required Widget child,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: MorandiColors.border.color),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: MorandiColors.textPrimary.color,
+            ),
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      ),
+    );
+  }
+  
+  // 构建小按钮
+  Widget _buildSmallButton({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+    bool isDense = true,
+    bool isDanger = false,
+  }) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon, size: 16),
+      label: Text(label, style: const TextStyle(fontSize: 13)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isDanger ? Colors.red[400] : MorandiColors.buttonSecondary.color,
+        foregroundColor: isDanger ? Colors.white : MorandiColors.buttonText.color,
+        padding: EdgeInsets.symmetric(horizontal: isDense ? 8 : 12, vertical: isDense ? 10 : 12),
+        minimumSize: const Size(0, 0),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(6),
+        ),
+      ),
+    );
+  }
+  
+  // 构建操作按钮
+  Widget _buildActionButton({
+    required String label,
+    required VoidCallback onPressed,
+    IconData? icon,
+  }) {
+    return ElevatedButton.icon(
+      onPressed: onPressed,
+      icon: icon != null ? Icon(icon, size: 16) : null,
+      label: Text(label, style: const TextStyle(fontSize: 13)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: MorandiColors.buttonSecondary.color,
+        foregroundColor: MorandiColors.buttonText.color,
+        padding: EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 10,
+        ),
+        minimumSize: const Size(0, 0),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(6),
         ),
       ),
     );
