@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -50,6 +51,55 @@ class CopyLogEntry {
   }
 }
 
+// 拷贝状态类
+class CopyState {
+  bool isCopying;
+  String copyStatus;
+  bool hasCopyLog;
+
+  CopyState({
+    required this.isCopying,
+    required this.copyStatus,
+    required this.hasCopyLog,
+  });
+}
+
+// 拷贝日志事件广播器
+class CopyLogBroadcaster {
+  static final CopyLogBroadcaster _instance = CopyLogBroadcaster._internal();
+  factory CopyLogBroadcaster() => _instance;
+
+  CopyLogBroadcaster._internal();
+
+  final StreamController<CopyLogEntry> _logController = StreamController<CopyLogEntry>.broadcast();
+  final StreamController<void> _clearController = StreamController<void>.broadcast();
+  final ValueNotifier<CopyState> _stateNotifier = ValueNotifier<CopyState>(
+    CopyState(isCopying: false, copyStatus: '', hasCopyLog: false),
+  );
+
+  Stream<CopyLogEntry> get logStream => _logController.stream;
+  Stream<void> get clearStream => _clearController.stream;
+  ValueNotifier<CopyState> get stateNotifier => _stateNotifier;
+
+  void addLogEntry(CopyLogEntry entry) {
+    _logController.add(entry);
+  }
+
+  void clearLogs() {
+    _clearController.add(null);
+  }
+
+  void updateState(CopyState state) {
+    _stateNotifier.value = state;
+  }
+
+  void dispose() {
+    _logController.close();
+    _clearController.close();
+    _stateNotifier.dispose();
+  }
+}
+
 // 屏蔽路径子界面
 class ExcludedPathsScreen extends StatefulWidget {
   final CopyConfig config;
@@ -71,6 +121,13 @@ class CopyConfigManagerScreen extends StatefulWidget {
   final int selectedIndex;
   final Function(int) onSelectConfig;
   final Function(int) onEditConfig;
+  final Function(int) onCopyFiles;
+  final Function(int) onToggleDeleteDestDir;
+  final bool isCopying;
+  final String copyStatus;
+  final bool hasCopyLog;
+  final VoidCallback onShowCopyLog;
+  final VoidCallback onRefresh;
 
   const CopyConfigManagerScreen({
     Key? key,
@@ -78,6 +135,13 @@ class CopyConfigManagerScreen extends StatefulWidget {
     required this.selectedIndex,
     required this.onSelectConfig,
     required this.onEditConfig,
+    required this.onCopyFiles,
+    required this.onToggleDeleteDestDir,
+    required this.isCopying,
+    required this.copyStatus,
+    required this.hasCopyLog,
+    required this.onShowCopyLog,
+    required this.onRefresh,
   }) : super(key: key);
 
   @override
@@ -86,11 +150,53 @@ class CopyConfigManagerScreen extends StatefulWidget {
 
 class _CopyConfigManagerScreenState extends State<CopyConfigManagerScreen> {
   late int _selectedIndex;
+  Timer? _refreshTimer;
+  StreamSubscription<CopyLogEntry>? _logSubscription;
+  StreamSubscription<void>? _clearSubscription;
+  late VoidCallback _stateListener;
 
   @override
   void initState() {
     super.initState();
     _selectedIndex = widget.selectedIndex;
+    
+    // 启动定时刷新，每500毫秒刷新一次
+    _refreshTimer = Timer.periodic(const Duration(milliseconds: 500), (timer) {
+      setState(() {
+        // 刷新状态
+      });
+    });
+    
+    // 监听拷贝日志事件
+    _logSubscription = CopyLogBroadcaster().logStream.listen((entry) {
+      setState(() {
+        // 日志更新会触发UI刷新
+      });
+    });
+    
+    // 监听日志清除事件
+    _clearSubscription = CopyLogBroadcaster().clearStream.listen((_) {
+      setState(() {
+        // 日志清除会触发UI刷新
+      });
+    });
+    
+    // 监听拷贝状态变化
+    _stateListener = () {
+      setState(() {
+        // 状态变化会触发UI刷新
+      });
+    };
+    CopyLogBroadcaster().stateNotifier.addListener(_stateListener);
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    _logSubscription?.cancel();
+    _clearSubscription?.cancel();
+    CopyLogBroadcaster().stateNotifier.removeListener(_stateListener);
+    super.dispose();
   }
 
   @override
@@ -193,6 +299,96 @@ class _CopyConfigManagerScreenState extends State<CopyConfigManagerScreen> {
                       ),
                       child: const Text('编辑配置'),
                     ),
+                  ],
+                ),
+              ),
+            ),
+            // 执行拷贝区
+            Visibility(
+              visible: _selectedIndex >= 0,
+              child: Container(
+                padding: const EdgeInsets.all(16.0),
+                margin: const EdgeInsets.only(top: 16.0),
+                decoration: BoxDecoration(
+                  color: MorandiColors.executeArea.color,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // 删除目标目录选项（左侧）
+                        Row(
+                          children: [
+                            Checkbox(
+                              value: widget.copyConfigs[_selectedIndex].shouldDeleteDestDir,
+                              onChanged: (value) {
+                                widget.onToggleDeleteDestDir(_selectedIndex);
+                              },
+                              activeColor: MorandiColors.buttonPrimary.color,
+                              checkColor: MorandiColors.buttonText.color,
+                            ),
+                            Text(
+                              '拷贝前删除目标目录下的所有文件',
+                              style: TextStyle(color: MorandiColors.textPrimary.color),
+                            ),
+                          ],
+                        ),
+
+                        // 拷贝按钮（右侧）
+                        ElevatedButton.icon(
+                          onPressed: widget.isCopying ? null : () => widget.onCopyFiles(_selectedIndex),
+                          icon: const Icon(Icons.copy),
+                          label: const Text('开始拷贝', style: TextStyle(fontSize: 16)),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: MorandiColors.buttonPrimary.color,
+                            foregroundColor: MorandiColors.buttonText.color,
+                            padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    // 拷贝状态
+                     Align(
+                       alignment: Alignment.center,
+                       child: Text(
+                         widget.copyStatus,
+                         style: TextStyle(
+                           fontSize: 16,
+                           color: widget.isCopying ? MorandiColors.buttonPrimary.color : Colors.green[600],
+                           fontWeight: FontWeight.w500,
+                         ),
+                       ),
+                     ),
+                     const SizedBox(height: 12),
+                     
+                     // 查看日志按钮
+                     Visibility(
+                       visible: !widget.isCopying && widget.hasCopyLog,
+                       child: Align(
+                         alignment: Alignment.center,
+                         child: ElevatedButton.icon(
+                           onPressed: widget.onShowCopyLog,
+                           icon: const Icon(Icons.list),
+                           label: const Text('查看拷贝日志', style: TextStyle(fontSize: 14)),
+                           style: ElevatedButton.styleFrom(
+                             backgroundColor: MorandiColors.buttonSecondary.color,
+                             foregroundColor: MorandiColors.buttonText.color,
+                             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                             shape: RoundedRectangleBorder(
+                               borderRadius: BorderRadius.circular(8),
+                             ),
+                           ),
+                         ),
+                       ),
+                     ),
                   ],
                 ),
               ),
@@ -520,11 +716,17 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
   final TextEditingController _destController = TextEditingController();
   final TextEditingController _configNameController = TextEditingController();
   
+  // 事件订阅
+  StreamSubscription<CopyLogEntry>? _logSubscription;
+  StreamSubscription<void>? _clearSubscription;
+  
   @override
   void dispose() {
     _sourceController.dispose();
     _destController.dispose();
     _configNameController.dispose();
+    _logSubscription?.cancel();
+    _clearSubscription?.cancel();
     super.dispose();
   }
 
@@ -532,6 +734,20 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
   void initState() {
     super.initState();
     _loadSettings();
+    
+    // 监听拷贝日志事件
+    _logSubscription = CopyLogBroadcaster().logStream.listen((entry) {
+      setState(() {
+        // 日志更新会触发UI刷新
+      });
+    });
+    
+    // 监听日志清除事件
+    _clearSubscription = CopyLogBroadcaster().clearStream.listen((_) {
+      setState(() {
+        // 日志清除会触发UI刷新
+      });
+    });
   }
 
   Future<void> _loadSettings() async {
@@ -814,6 +1030,12 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
       _copyStatus = '开始拷贝...';
     });
     _copyLog.clear();
+    CopyLogBroadcaster().clearLogs();
+    CopyLogBroadcaster().updateState(CopyState(
+      isCopying: _isCopying,
+      copyStatus: _copyStatus,
+      hasCopyLog: _copyLog.isNotEmpty,
+    ));
 
     try {
       final sourceDir = Directory(currentConfig.sourceDirectory!);
@@ -826,6 +1048,11 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
         setState(() {
           _copyStatus = '正在清理目标目录...';
         });
+        CopyLogBroadcaster().updateState(CopyState(
+          isCopying: _isCopying,
+          copyStatus: _copyStatus,
+          hasCopyLog: _copyLog.isNotEmpty,
+        ));
         
         final List<FileSystemEntity> entities = destDir.listSync(recursive: false);
         for (var entity in entities) {
@@ -842,6 +1069,11 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
       setState(() {
         _copyStatus = '拷贝完成！';
       });
+      CopyLogBroadcaster().updateState(CopyState(
+        isCopying: _isCopying,
+        copyStatus: _copyStatus,
+        hasCopyLog: _copyLog.isNotEmpty,
+      ));
     } catch (e) {
       setState(() {
         _copyStatus = '拷贝失败: $e';
@@ -854,9 +1086,22 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
           errorMessage: '$e',
         ));
       });
+      CopyLogBroadcaster().updateState(CopyState(
+        isCopying: _isCopying,
+        copyStatus: _copyStatus,
+        hasCopyLog: _copyLog.isNotEmpty,
+      ));
     } finally {
       setState(() {
         _isCopying = false;
+      });
+      // 延迟一点时间再更新状态，确保UI有足够时间刷新
+      Future.delayed(const Duration(milliseconds: 100), () {
+        CopyLogBroadcaster().updateState(CopyState(
+          isCopying: _isCopying,
+          copyStatus: _copyStatus,
+          hasCopyLog: _copyLog.isNotEmpty,
+        ));
       });
     }
   }
@@ -872,12 +1117,22 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
         setState(() {
           _copyStatus = '跳过: $relativePath';
         });
+        CopyLogBroadcaster().updateState(CopyState(
+          isCopying: _isCopying,
+          copyStatus: _copyStatus,
+          hasCopyLog: _copyLog.isNotEmpty,
+        ));
         continue;
       }
 
       setState(() {
         _copyStatus = '正在拷贝: $relativePath';
       });
+      CopyLogBroadcaster().updateState(CopyState(
+        isCopying: _isCopying,
+        copyStatus: _copyStatus,
+        hasCopyLog: _copyLog.isNotEmpty,
+      ));
 
       if (entity is Directory) {
         final destDir = Directory(destPath);
@@ -893,30 +1148,40 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
         }
         
         try {
-          final fileSize = await entity.length();
-          await entity.copy(destPath);
-          
-          setState(() {
-            _copyLog.add(CopyLogEntry(
+            final fileSize = await entity.length();
+            await entity.copy(destPath);
+            
+            final logEntry = CopyLogEntry(
               timestamp: DateTime.now(),
               sourcePath: entity.path,
               destinationPath: destPath,
               fileSize: fileSize,
               success: true,
-            ));
-          });
-        } catch (e) {
-          setState(() {
-            _copyLog.add(CopyLogEntry(
+            );
+            
+            setState(() {
+              _copyLog.add(logEntry);
+            });
+            
+            // 广播日志条目
+            CopyLogBroadcaster().addLogEntry(logEntry);
+          } catch (e) {
+            final logEntry = CopyLogEntry(
               timestamp: DateTime.now(),
               sourcePath: entity.path,
               destinationPath: destPath,
               fileSize: 0,
               success: false,
               errorMessage: '$e',
-            ));
-          });
-        }
+            );
+            
+            setState(() {
+              _copyLog.add(logEntry);
+            });
+            
+            // 广播日志条目
+            CopyLogBroadcaster().addLogEntry(logEntry);
+          }
       }
     }
   }
@@ -1198,22 +1463,49 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (context) => CopyConfigManagerScreen(
-          copyConfigs: _copyConfigs,
-          selectedIndex: _currentConfigIndex,
-          onSelectConfig: (index) {
-            setState(() {
-              _currentConfigIndex = index;
-              _updateControllers();
-              _saveSettings();
-            });
-          },
-          onEditConfig: (index) {
-            setState(() {
-              _currentConfigIndex = index;
-              _updateControllers();
-              _saveSettings();
-            });
+        builder: (context) => ValueListenableBuilder<CopyState>(
+          valueListenable: CopyLogBroadcaster().stateNotifier,
+          builder: (context, state, child) {
+            return CopyConfigManagerScreen(
+              copyConfigs: _copyConfigs,
+              selectedIndex: _currentConfigIndex,
+              onSelectConfig: (index) {
+                setState(() {
+                  _currentConfigIndex = index;
+                  _updateControllers();
+                  _saveSettings();
+                });
+              },
+              onEditConfig: (index) {
+                setState(() {
+                  _currentConfigIndex = index;
+                  _updateControllers();
+                  _saveSettings();
+                });
+              },
+              onCopyFiles: (index) async {
+                setState(() {
+                  _currentConfigIndex = index;
+                  _updateControllers();
+                });
+                await _copyFiles();
+              },
+              onToggleDeleteDestDir: (index) {
+                setState(() {
+                  _copyConfigs[index].shouldDeleteDestDir = !_copyConfigs[index].shouldDeleteDestDir;
+                  _saveSettings();
+                });
+              },
+              isCopying: _isCopying,
+              copyStatus: _copyStatus,
+              hasCopyLog: _copyLog.isNotEmpty,
+              onShowCopyLog: _showCopyLog,
+              onRefresh: () {
+                setState(() {
+                  // 刷新状态
+                });
+              },
+            );
           },
         ),
       ),
