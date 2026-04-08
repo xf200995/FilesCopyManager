@@ -7,6 +7,49 @@ import 'package:path/path.dart' as path;
 import 'package:url_launcher/url_launcher.dart';
 import 'colors.dart';
 
+// 拷贝日志条目类
+class CopyLogEntry {
+  final DateTime timestamp;
+  final String sourcePath;
+  final String destinationPath;
+  final int fileSize;
+  final bool success;
+  final String? errorMessage;
+
+  CopyLogEntry({
+    required this.timestamp,
+    required this.sourcePath,
+    required this.destinationPath,
+    required this.fileSize,
+    required this.success,
+    this.errorMessage,
+  });
+
+  // 转换为JSON
+  Map<String, dynamic> toJson() {
+    return {
+      'timestamp': timestamp.toIso8601String(),
+      'sourcePath': sourcePath,
+      'destinationPath': destinationPath,
+      'fileSize': fileSize,
+      'success': success,
+      'errorMessage': errorMessage,
+    };
+  }
+
+  // 从JSON创建
+  factory CopyLogEntry.fromJson(Map<String, dynamic> json) {
+    return CopyLogEntry(
+      timestamp: DateTime.parse(json['timestamp']),
+      sourcePath: json['sourcePath'],
+      destinationPath: json['destinationPath'],
+      fileSize: json['fileSize'],
+      success: json['success'],
+      errorMessage: json['errorMessage'],
+    );
+  }
+}
+
 // 屏蔽路径子界面
 class ExcludedPathsScreen extends StatefulWidget {
   final CopyConfig config;
@@ -470,6 +513,7 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
   int _currentConfigIndex = 0;
   bool _isCopying = false;
   String _copyStatus = '';
+  final List<CopyLogEntry> _copyLog = [];
   
   // 文本编辑控制器
   final TextEditingController _sourceController = TextEditingController();
@@ -769,6 +813,7 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
       _isCopying = true;
       _copyStatus = '开始拷贝...';
     });
+    _copyLog.clear();
 
     try {
       final sourceDir = Directory(currentConfig.sourceDirectory!);
@@ -800,6 +845,14 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
     } catch (e) {
       setState(() {
         _copyStatus = '拷贝失败: $e';
+        _copyLog.add(CopyLogEntry(
+          timestamp: DateTime.now(),
+          sourcePath: '全局错误',
+          destinationPath: '全局错误',
+          fileSize: 0,
+          success: false,
+          errorMessage: '$e',
+        ));
       });
     } finally {
       setState(() {
@@ -838,7 +891,32 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
         if (!await destDir.exists()) {
           await destDir.create(recursive: true);
         }
-        await entity.copy(destPath);
+        
+        try {
+          final fileSize = await entity.length();
+          await entity.copy(destPath);
+          
+          setState(() {
+            _copyLog.add(CopyLogEntry(
+              timestamp: DateTime.now(),
+              sourcePath: entity.path,
+              destinationPath: destPath,
+              fileSize: fileSize,
+              success: true,
+            ));
+          });
+        } catch (e) {
+          setState(() {
+            _copyLog.add(CopyLogEntry(
+              timestamp: DateTime.now(),
+              sourcePath: entity.path,
+              destinationPath: destPath,
+              fileSize: 0,
+              success: false,
+              errorMessage: '$e',
+            ));
+          });
+        }
       }
     }
   }
@@ -853,6 +931,72 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // 显示拷贝日志
+  void _showCopyLog() {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('拷贝日志'),
+        content: Container(
+          width: double.maxFinite,
+          height: 500,
+          child: ListView.builder(
+            itemCount: _copyLog.length,
+            itemBuilder: (context, index) {
+              final entry = _copyLog[index];
+              return Card(
+                margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 0),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            entry.success ? '成功' : '失败',
+                            style: TextStyle(
+                              color: entry.success ? Colors.green[600] : Colors.red[600],
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '${entry.timestamp.hour}:${entry.timestamp.minute}:${entry.timestamp.second}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text('源文件: ${entry.sourcePath}'),
+                      Text('目标文件: ${entry.destinationPath}'),
+                      if (entry.fileSize > 0) 
+                        Text('文件大小: ${(entry.fileSize / 1024).toStringAsFixed(2)} KB'),
+                      if (!entry.success && entry.errorMessage != null) 
+                        Text(
+                          '错误信息: ${entry.errorMessage}',
+                          style: const TextStyle(color: Colors.red),
+                        ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('关闭'),
           ),
         ],
       ),
@@ -1500,6 +1644,28 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                         fontSize: 16,
                         color: _isCopying ? MorandiColors.buttonPrimary.color : Colors.green[600],
                         fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  
+                  // 查看日志按钮
+                  Visibility(
+                    visible: !_isCopying && _copyLog.isNotEmpty,
+                    child: Align(
+                      alignment: Alignment.center,
+                      child: ElevatedButton.icon(
+                        onPressed: _showCopyLog,
+                        icon: const Icon(Icons.list),
+                        label: const Text('查看拷贝日志', style: TextStyle(fontSize: 14)),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: MorandiColors.buttonSecondary.color,
+                          foregroundColor: MorandiColors.buttonText.color,
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
                       ),
                     ),
                   ),
