@@ -44,6 +44,9 @@ dependencies:
   
   # For file system operations
   path_provider: ^2.1.3
+  
+  # For opening directories in file explorer
+  url_launcher: ^6.3.0
 
 dev_dependencies:
   flutter_test:

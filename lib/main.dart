@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as path;
+import 'package:url_launcher/url_launcher.dart';
 import 'colors.dart';
 
 // 屏蔽路径子界面
@@ -19,6 +20,170 @@ class ExcludedPathsScreen extends StatefulWidget {
 
   @override
   State<ExcludedPathsScreen> createState() => _ExcludedPathsScreenState();
+}
+
+// 拷贝配置管理子界面
+class CopyConfigManagerScreen extends StatefulWidget {
+  final List<CopyConfig> copyConfigs;
+  final int selectedIndex;
+  final Function(int) onSelectConfig;
+  final Function(int) onEditConfig;
+
+  const CopyConfigManagerScreen({
+    Key? key,
+    required this.copyConfigs,
+    required this.selectedIndex,
+    required this.onSelectConfig,
+    required this.onEditConfig,
+  }) : super(key: key);
+
+  @override
+  State<CopyConfigManagerScreen> createState() => _CopyConfigManagerScreenState();
+}
+
+class _CopyConfigManagerScreenState extends State<CopyConfigManagerScreen> {
+  late int _selectedIndex;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedIndex = widget.selectedIndex;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('拷贝配置管理'),
+        backgroundColor: MorandiColors.buttonPrimary.color,
+        foregroundColor: MorandiColors.buttonText.color,
+      ),
+      body: Container(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                itemCount: widget.copyConfigs.length,
+                itemBuilder: (context, index) {
+                  final config = widget.copyConfigs[index];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 12.0),
+                    child: InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedIndex = index;
+                        });
+                        widget.onSelectConfig(index);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.all(12.0),
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: _selectedIndex == index 
+                                ? MorandiColors.buttonPrimary.color 
+                                : Colors.transparent,
+                            width: 2,
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  config.name,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                Radio<int>(
+                                  value: index,
+                                  groupValue: _selectedIndex,
+                                  onChanged: (value) {
+                                    if (value != null) {
+                                      setState(() {
+                                        _selectedIndex = value;
+                                      });
+                                      widget.onSelectConfig(value);
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            _buildPathItem('源目录:', config.sourceDirectory),
+                            _buildPathItem('目标目录:', config.destinationDirectory),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            // 底部功能区
+            Visibility(
+              visible: _selectedIndex >= 0,
+              child: Container(
+                padding: const EdgeInsets.all(16.0),
+                margin: const EdgeInsets.only(top: 16.0),
+                decoration: BoxDecoration(
+                  color: MorandiColors.executeArea.color,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    ElevatedButton(
+                      onPressed: () {
+                        widget.onEditConfig(_selectedIndex);
+                        Navigator.pop(context);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: MorandiColors.buttonPrimary.color,
+                        foregroundColor: MorandiColors.buttonText.color,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      ),
+                      child: const Text('编辑配置'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPathItem(String label, String? path) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4.0),
+      child: Row(
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              path ?? '未设置',
+              style: TextStyle(
+                color: path != null ? MorandiColors.textPrimary.color : Colors.grey,
+                fontSize: 14,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
@@ -451,6 +616,50 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
     }
   }
 
+  void _openSourceDirectory() {
+    final currentConfig = _copyConfigs[_currentConfigIndex];
+    if (currentConfig.sourceDirectory == null || currentConfig.sourceDirectory!.isEmpty) {
+      _showErrorDialog('源目录未配置');
+      return;
+    }
+    
+    try {
+      final directory = Directory(currentConfig.sourceDirectory!);
+      if (!directory.existsSync()) {
+        _showErrorDialog('源目录不存在：${currentConfig.sourceDirectory}');
+        return;
+      }
+      launchUrl(
+        Uri.file(currentConfig.sourceDirectory!),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (e) {
+      _showErrorDialog('无法打开源目录：$e');
+    }
+  }
+
+  void _openDestinationDirectory() {
+    final currentConfig = _copyConfigs[_currentConfigIndex];
+    if (currentConfig.destinationDirectory == null || currentConfig.destinationDirectory!.isEmpty) {
+      _showErrorDialog('目标目录未配置');
+      return;
+    }
+    
+    try {
+      final directory = Directory(currentConfig.destinationDirectory!);
+      if (!directory.existsSync()) {
+        _showErrorDialog('目标目录不存在：${currentConfig.destinationDirectory}');
+        return;
+      }
+      launchUrl(
+        Uri.file(currentConfig.destinationDirectory!),
+        mode: LaunchMode.externalApplication,
+      );
+    } catch (e) {
+      _showErrorDialog('无法打开目标目录：$e');
+    }
+  }
+
   Future<void> _addExcludedPath() async {
     final currentConfig = _copyConfigs[_currentConfigIndex];
     if (currentConfig.sourceDirectory == null) {
@@ -840,6 +1049,33 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
     );
   }
 
+  // 打开配置管理子界面
+  void _openConfigManager() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CopyConfigManagerScreen(
+          copyConfigs: _copyConfigs,
+          selectedIndex: _currentConfigIndex,
+          onSelectConfig: (index) {
+            setState(() {
+              _currentConfigIndex = index;
+              _updateControllers();
+              _saveSettings();
+            });
+          },
+          onEditConfig: (index) {
+            setState(() {
+              _currentConfigIndex = index;
+              _updateControllers();
+              _saveSettings();
+            });
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // 确保配置列表不为空
@@ -964,6 +1200,25 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                               ),
                               const SizedBox(width: 8),
                               _buildSmallButton(
+                                icon: Icons.delete,
+                                label: '删除',
+                                onPressed: () => _deleteConfig(_currentConfigIndex),
+                                isDanger: true,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          // 第二排按钮
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              _buildSmallButton(
+                                icon: Icons.manage_accounts,
+                                label: '管理配置',
+                                onPressed: _openConfigManager,
+                              ),
+                              const SizedBox(width: 8),
+                              _buildSmallButton(
                                 icon: Icons.import_export,
                                 label: '导入',
                                 onPressed: _importConfig,
@@ -973,13 +1228,6 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                                 icon: Icons.save_alt,
                                 label: '导出',
                                 onPressed: _showExportDialog,
-                              ),
-                              const SizedBox(width: 8),
-                              _buildSmallButton(
-                                icon: Icons.delete,
-                                label: '删除',
-                                onPressed: () => _deleteConfig(_currentConfigIndex),
-                                isDanger: true,
                               ),
                             ],
                           ),
@@ -1034,6 +1282,11 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                                 label: '选择目录',
                                 onPressed: _selectSourceDirectory,
                               ),
+                              const SizedBox(width: 8),
+                              _buildActionButton(
+                                label: '打开目录',
+                                onPressed: _openSourceDirectory,
+                              ),
                             ],
                           ),
                           const SizedBox(height: 16),
@@ -1076,6 +1329,11 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                               _buildActionButton(
                                 label: '选择目录',
                                 onPressed: _selectDestinationDirectory,
+                              ),
+                              const SizedBox(width: 8),
+                              _buildActionButton(
+                                label: '打开目录',
+                                onPressed: _openDestinationDirectory,
                               ),
                             ],
                           ),
