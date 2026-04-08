@@ -123,6 +123,7 @@ class CopyConfigManagerScreen extends StatefulWidget {
   final Function(int) onEditConfig;
   final Function(int) onCopyFiles;
   final Function(int) onToggleDeleteDestDir;
+  final Function(int) onDeleteConfig;
   final bool isCopying;
   final String copyStatus;
   final bool hasCopyLog;
@@ -137,6 +138,7 @@ class CopyConfigManagerScreen extends StatefulWidget {
     required this.onEditConfig,
     required this.onCopyFiles,
     required this.onToggleDeleteDestDir,
+    required this.onDeleteConfig,
     required this.isCopying,
     required this.copyStatus,
     required this.hasCopyLog,
@@ -249,17 +251,27 @@ class _CopyConfigManagerScreenState extends State<CopyConfigManagerScreen> {
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                Radio<int>(
-                                  value: index,
-                                  groupValue: _selectedIndex,
-                                  onChanged: (value) {
-                                    if (value != null) {
-                                      setState(() {
-                                        _selectedIndex = value;
-                                      });
-                                      widget.onSelectConfig(value);
-                                    }
-                                  },
+                                Row(
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(Icons.delete, color: Colors.red),
+                                      onPressed: () {
+                                        widget.onDeleteConfig(index);
+                                      },
+                                    ),
+                                    Radio<int>(
+                                      value: index,
+                                      groupValue: _selectedIndex,
+                                      onChanged: (value) {
+                                        if (value != null) {
+                                          setState(() {
+                                            _selectedIndex = value;
+                                          });
+                                          widget.onSelectConfig(value);
+                                        }
+                                      },
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -1493,6 +1505,15 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
               onToggleDeleteDestDir: (index) {
                 setState(() {
                   _copyConfigs[index].shouldDeleteDestDir = !_copyConfigs[index].shouldDeleteDestDir;
+                  _saveSettings();
+                });
+              },
+              onDeleteConfig: (index) {
+                setState(() {
+                  _copyConfigs.removeAt(index);
+                  if (_currentConfigIndex >= _copyConfigs.length) {
+                    _currentConfigIndex = _copyConfigs.length > 0 ? _copyConfigs.length - 1 : 0;
+                  }
                   _saveSettings();
                 });
               },
