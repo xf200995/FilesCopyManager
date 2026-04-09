@@ -719,7 +719,53 @@ class FileCopyManagerApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
       ),
-      home: const FileCopyManagerScreen(),
+      home: const SplashScreen(),
+    );
+  }
+}
+
+// 启动页面
+class SplashScreen extends StatelessWidget {
+  const SplashScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    // 延迟一点时间再跳转到配置管理页面
+    Future.delayed(const Duration(milliseconds: 500), () {
+      // 直接打开配置管理页面
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const FileCopyManagerScreen(),
+        ),
+      ).then((_) {
+        // 进入主页后立即打开配置管理页面
+        if (context.mounted) {
+          // 这里需要调用主页的_openConfigManager方法
+        }
+      });
+    });
+
+    // 显示启动画面
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              '文件拷贝管理器',
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 20),
+            CircularProgressIndicator(
+              color: MorandiColors.buttonPrimary.color,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -737,6 +783,8 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
   bool _isCopying = false;
   String _copyStatus = '';
   final List<CopyLogEntry> _copyLog = [];
+
+
   
   // 文本编辑控制器
   final TextEditingController _sourceController = TextEditingController();
@@ -774,6 +822,11 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
       setState(() {
         // 日志清除会触发UI刷新
       });
+    });
+    
+    // 启动时自动打开配置管理页面
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _openConfigManager();
     });
   }
 
