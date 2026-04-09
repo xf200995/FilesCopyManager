@@ -476,6 +476,12 @@ class _CopyConfigManagerScreenState extends State<CopyConfigManagerScreen> {
 }
 
 class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
+  void _sortExcludedPaths() {
+    setState(() {
+      widget.config.excludedPaths.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    });
+  }
+
   Future<void> _addExcludedPath() async {
     final results = await getDirectoryPaths(initialDirectory: widget.config.sourceDirectory);
     if (results.isNotEmpty) {
@@ -486,6 +492,7 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
       if (validPaths.isNotEmpty) {
         setState(() {
           widget.config.excludedPaths.addAll(validPaths);
+          _sortExcludedPaths();
         });
         widget.onConfigChanged();
       }
@@ -502,6 +509,7 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
       if (validPaths.isNotEmpty) {
         setState(() {
           widget.config.excludedPaths.addAll(validPaths);
+          _sortExcludedPaths();
         });
         widget.onConfigChanged();
       }
@@ -513,6 +521,12 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
       widget.config.excludedPaths.removeAt(index);
     });
     widget.onConfigChanged();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _sortExcludedPaths();
   }
 
   @override
@@ -871,6 +885,11 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
       
       _currentConfigIndex = currentIndex;
       _updateControllers();
+      
+      // 对每个配置的屏蔽路径进行排序
+      for (final config in _copyConfigs) {
+        config.excludedPaths.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      }
     });
   }
 
@@ -1043,6 +1062,7 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
       if (validPaths.isNotEmpty) {
         setState(() {
           currentConfig.excludedPaths.addAll(validPaths);
+          _sortExcludedPaths();
         });
         _saveSettings();
         
@@ -1077,6 +1097,7 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
       if (validPaths.isNotEmpty) {
         setState(() {
           currentConfig.excludedPaths.addAll(validPaths);
+          _sortExcludedPaths();
         });
         _saveSettings();
         
@@ -1106,6 +1127,12 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
         ),
       ),
     );
+  }
+
+  void _sortExcludedPaths() {
+    setState(() {
+      _copyConfigs[_currentConfigIndex].excludedPaths.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    });
   }
 
   void _removeExcludedPath(int index) {
