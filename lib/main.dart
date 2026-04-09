@@ -195,6 +195,21 @@ class _CopyConfigManagerScreenState extends State<CopyConfigManagerScreen> {
   }
 
   @override
+  void didUpdateWidget(CopyConfigManagerScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 确保 _selectedIndex 始终在有效范围内
+    if (widget.copyConfigs.length != oldWidget.copyConfigs.length) {
+      setState(() {
+        if (widget.copyConfigs.isEmpty) {
+          _selectedIndex = -1;
+        } else if (_selectedIndex >= widget.copyConfigs.length) {
+          _selectedIndex = widget.copyConfigs.length - 1;
+        }
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _refreshTimer?.cancel();
     _logSubscription?.cancel();
@@ -290,7 +305,7 @@ class _CopyConfigManagerScreenState extends State<CopyConfigManagerScreen> {
             ),
             // 底部功能区
             Visibility(
-              visible: _selectedIndex >= 0,
+              visible: _selectedIndex >= 0 && _selectedIndex < widget.copyConfigs.length,
               child: Container(
                 padding: const EdgeInsets.all(16.0),
                 margin: const EdgeInsets.only(top: 16.0),
@@ -316,8 +331,10 @@ class _CopyConfigManagerScreenState extends State<CopyConfigManagerScreen> {
                     const SizedBox(width: 12),
                     ElevatedButton(
                       onPressed: () {
-                        widget.onEditConfig(_selectedIndex);
-                        Navigator.pop(context);
+                        if (_selectedIndex >= 0 && _selectedIndex < widget.copyConfigs.length) {
+                          widget.onEditConfig(_selectedIndex);
+                          Navigator.pop(context);
+                        }
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: MorandiColors.buttonPrimary.color,
@@ -332,7 +349,7 @@ class _CopyConfigManagerScreenState extends State<CopyConfigManagerScreen> {
             ),
             // 执行拷贝区
             Visibility(
-              visible: _selectedIndex >= 0,
+              visible: _selectedIndex >= 0 && _selectedIndex < widget.copyConfigs.length,
               child: Container(
                 padding: const EdgeInsets.all(16.0),
                 margin: const EdgeInsets.only(top: 16.0),
@@ -350,9 +367,13 @@ class _CopyConfigManagerScreenState extends State<CopyConfigManagerScreen> {
                         Row(
                           children: [
                             Checkbox(
-                              value: widget.copyConfigs[_selectedIndex].shouldDeleteDestDir,
+                              value: _selectedIndex >= 0 && _selectedIndex < widget.copyConfigs.length 
+                                  ? widget.copyConfigs[_selectedIndex].shouldDeleteDestDir 
+                                  : false,
                               onChanged: (value) {
-                                widget.onToggleDeleteDestDir(_selectedIndex);
+                                if (_selectedIndex >= 0 && _selectedIndex < widget.copyConfigs.length) {
+                                  widget.onToggleDeleteDestDir(_selectedIndex);
+                                }
                               },
                               activeColor: MorandiColors.buttonPrimary.color,
                               checkColor: MorandiColors.buttonText.color,
@@ -366,7 +387,9 @@ class _CopyConfigManagerScreenState extends State<CopyConfigManagerScreen> {
 
                         // 拷贝按钮（右侧）
                         ElevatedButton.icon(
-                          onPressed: widget.isCopying ? null : () => widget.onCopyFiles(_selectedIndex),
+                          onPressed: widget.isCopying || _selectedIndex < 0 || _selectedIndex >= widget.copyConfigs.length 
+                              ? null 
+                              : () => widget.onCopyFiles(_selectedIndex),
                           icon: const Icon(Icons.copy),
                           label: const Text('开始拷贝', style: TextStyle(fontSize: 16)),
                           style: ElevatedButton.styleFrom(
