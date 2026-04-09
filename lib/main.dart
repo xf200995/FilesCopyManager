@@ -124,6 +124,7 @@ class CopyConfigManagerScreen extends StatefulWidget {
   final Function(int) onCopyFiles;
   final Function(int) onToggleDeleteDestDir;
   final Function(int) onDeleteConfig;
+  final VoidCallback onAddConfig;
   final bool isCopying;
   final String copyStatus;
   final bool hasCopyLog;
@@ -139,6 +140,7 @@ class CopyConfigManagerScreen extends StatefulWidget {
     required this.onCopyFiles,
     required this.onToggleDeleteDestDir,
     required this.onDeleteConfig,
+    required this.onAddConfig,
     required this.isCopying,
     required this.copyStatus,
     required this.hasCopyLog,
@@ -299,6 +301,19 @@ class _CopyConfigManagerScreenState extends State<CopyConfigManagerScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        widget.onAddConfig();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: MorandiColors.buttonSecondary.color,
+                        foregroundColor: MorandiColors.buttonText.color,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                      ),
+                      child: const Text('新增配置'),
+                    ),
+                    const SizedBox(width: 12),
                     ElevatedButton(
                       onPressed: () {
                         widget.onEditConfig(_selectedIndex);
@@ -1470,6 +1485,17 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
     );
   }
 
+  // 自动命名函数，处理同名配置
+  String _generateUniqueName(List<CopyConfig> configs, String baseName) {
+    if (configs.isEmpty) return baseName;
+    
+    // 检查是否有同名配置
+    final count = configs.where((config) => config.name.startsWith(baseName)).length;
+    
+    if (count == 0) return baseName;
+    return '${baseName}_${count + 1}';
+  }
+
   // 打开配置管理子界面
   void _openConfigManager() {
     Navigator.push(
@@ -1514,6 +1540,25 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                   if (_currentConfigIndex >= _copyConfigs.length) {
                     _currentConfigIndex = _copyConfigs.length > 0 ? _copyConfigs.length - 1 : 0;
                   }
+                  _saveSettings();
+                });
+              },
+              onAddConfig: () {
+                // 实现新增配置逻辑
+                setState(() {
+                  // 生成唯一名称
+                  final uniqueName = _generateUniqueName(_copyConfigs, '新配置');
+                  
+                  // 创建新的配置
+                  _copyConfigs.add(CopyConfig(
+                    name: uniqueName,
+                    sourceDirectory: '',
+                    destinationDirectory: '',
+                    excludedPaths: [],
+                    shouldDeleteDestDir: false,
+                  ));
+                  _currentConfigIndex = _copyConfigs.length - 1;
+                  _updateControllers();
                   _saveSettings();
                 });
               },
