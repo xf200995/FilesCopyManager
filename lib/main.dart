@@ -23,94 +23,136 @@ class PathMatcher {
     final normalizedPattern = _normalizePath(pattern);
     final normalizedFilePath = _normalizePath(filePath);
     
-    // 判断是哪种模式
-    if (_isRecursiveFilePattern(normalizedPattern)) {
-      // 递归文件模式 - 需要检查是否在源目录下
-      final relativeFilePath = _getRelativePath(normalizedFilePath);
-      if (relativeFilePath == null) return false;
-      return _matchRecursiveFilePattern(normalizedPattern, relativeFilePath);
-    } else if (_isDirectSubdirectoryFilePattern(normalizedPattern)) {
-      // 直接子目录文件模式 - 需要检查是否在源目录下
-      final relativeFilePath = _getRelativePath(normalizedFilePath);
-      if (relativeFilePath == null) return false;
-      return _matchDirectSubdirectoryFilePattern(normalizedPattern, relativeFilePath);
-    } else if (_isSpecificSubdirectoryFilePattern(normalizedPattern)) {
-      // 特定子目录文件模式 - 需要检查是否在源目录下
-      final relativeFilePath = _getRelativePath(normalizedFilePath);
-      if (relativeFilePath == null) return false;
-      return _matchSpecificSubdirectoryFilePattern(normalizedPattern, relativeFilePath);
-    } else {
-      // 传统的前缀匹配 - 不需要检查源目录
+    // 获取相对于源目录的路径
+    final relativeFilePath = _getRelativePath(normalizedFilePath);
+    if (relativeFilePath == null) {
+      // 如果不在源目录下，尝试传统的前缀匹配
       return normalizedFilePath.startsWith(normalizedPattern);
+    }
+    
+    // 使用新的通用匹配逻辑
+    return _matchPattern(normalizedPattern, relativeFilePath);
+  }
+  
+  // 通用匹配逻辑
+  bool _matchPattern(String pattern, String relativeFilePath) {
+    // 处理简单的递归文件模式：*.json（源目录及其所有子目录下的json文件）
+    if (_isSimpleRecursivePattern(pattern)) {
+      return _matchSimpleRecursivePattern(pattern, relativeFilePath);
+    }
+    
+    // 处理更通用的模式
+    final separator = pattern.contains('/') ? '/' : Platform.pathSeparator;
+    final patternParts = pattern.split(separator);
+    final filePathParts = relativeFilePath.split(Platform.pathSeparator);
+    
+    // 模式必须至少有一个部分
+    if (patternParts.isEmpty) return false;
+    
+    // 检查是否是 * 开头的模式（相对于源目录）
+    if (patternParts.first == '*') {
+      // 去掉开头的 *
+      final remainingPatternParts = patternParts.skip(1).toList();
+      if (remainingPatternParts.isEmpty) return false;
+      
+      // 查找模式中最后一个部分是文件名模式
+      final lastPatternPart = remainingPatternParts.last;
+      final isFilePattern = lastPatternPart.startsWith('*.') || 
+          lastPatternPart.endsWith('.*') || 
+          lastPatternPart.contains('*');
+      
+      if (isFilePattern && remainingPatternParts.length >= 2) {
+        // 模式类似 */dir/*.png：匹配 dir 目录及其所有子目录下的 png 文件
+        final dirPatternParts = remainingPatternParts.sublist(0, remainingPatternParts.length - 1);
+        final filePattern = remainingPatternParts.last;
+        
+        // 检查文件路径是否以指定的目录模式开头
+        bool startsWithDirPattern = false;
+        for (int i = 0; i <= filePathParts.length - dirPatternParts.length; i++) {
+          bool dirMatch = true;
+          for (int j = 0; j < dirPatternParts.length; j++) {
+            if (!_matchPart(dirPatternParts[j], filePathParts[i + j])) {
+              dirMatch = false;
+              break;
+            }
+          }
+          if (dirMatch) {
+            startsWithDirPattern = true;
+            break;
+          }
+        }
+        
+        if (!startsWithDirPattern) return false;
+        
+        // 检查文件名是否匹配
+        final fileName = filePathParts.last;
+        return _matchPart(filePattern, fileName);
+      } else {
+        // 从任意位置开始匹配剩余的模式
+        return _matchFromPosition(remainingPatternParts, filePathParts, 0);
+      }
+    } else {
+      // 从开头开始匹配
+      return _matchFromPosition(patternParts, filePathParts, 0);
     }
   }
   
-  // 检查是否是递归文件模式（如 *.json）
-  bool _isRecursiveFilePattern(String pattern) {
+  // 从指定位置开始匹配模式
+  bool _matchFromPosition(List<String> patternParts, List<String> filePathParts, int startPos) {
+    // 遍历所有可能的起始位置
+    for (int i = startPos; i <= filePathParts.length - patternParts.length; i++) {
+      bool match = true;
+      for (int j = 0; j < patternParts.length; j++) {
+        if (!_matchPart(patternParts[j], filePathParts[i + j])) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return true;
+    }
+    return false;
+  }
+  
+  // 匹配单个部分
+  bool _matchPart(String patternPart, String filePathPart) {
+    // 处理 *.ext 模式
+    if (patternPart.startsWith('*.')) {
+      final extension = patternPart.substring(1);
+      return filePathPart.endsWith(extension);
+    }
+    
+    // 处理 * 通配符
+    if (patternPart == '*') {
+      return true;
+    }
+    
+    // 处理 name.* 模式
+    if (patternPart.endsWith('.*')) {
+      final name = patternPart.substring(0, patternPart.length - 2);
+      return filePathPart.startsWith(name + '.');
+    }
+    
+    // 处理包含 * 的模式
+    if (patternPart.contains('*')) {
+      final regexPattern = patternPart
+          .replaceAll('.', r'\.')
+          .replaceAll('*', '.*');
+      return RegExp('^$regexPattern\$').hasMatch(filePathPart);
+    }
+    
+    // 精确匹配
+    return patternPart == filePathPart;
+  }
+  
+  // 检查是否是简单递归模式
+  bool _isSimpleRecursivePattern(String pattern) {
     return pattern.startsWith('*.') && !pattern.contains('/') && !pattern.contains(Platform.pathSeparator);
   }
   
-  // 匹配递归文件模式（如 *.json）
-  bool _matchRecursiveFilePattern(String pattern, String relativeFilePath) {
-    final extension = pattern.substring(1); // 去掉 * 号
+  // 匹配简单递归模式
+  bool _matchSimpleRecursivePattern(String pattern, String relativeFilePath) {
+    final extension = pattern.substring(1);
     return relativeFilePath.endsWith(extension);
-  }
-  
-  // 检查是否是直接子目录文件模式（如 */.json）
-  bool _isDirectSubdirectoryFilePattern(String pattern) {
-    return (pattern.startsWith('*/.') || pattern.startsWith('*' + Platform.pathSeparator + '.')) && pattern.length > 3;
-  }
-  
-  // 匹配直接子目录文件模式（如 */.json）
-  bool _matchDirectSubdirectoryFilePattern(String pattern, String relativeFilePath) {
-    // 从模式中提取扩展名
-    final extensionPattern = pattern.startsWith('*/.') ? pattern.substring(2) : pattern.substring(3);
-    final parts = relativeFilePath.split(Platform.pathSeparator);
-    
-    // 必须至少有一个目录层级（源目录的直接子目录）
-    if (parts.length < 2) return false;
-    
-    // 检查是否在直接子目录中（只有一个目录层级，不包含更深的子目录）
-    final hasOnlyOneDirectoryLevel = parts.length == 2 || (parts.length > 2 && !parts.sublist(1, parts.length - 1).any((part) => part.isNotEmpty));
-    
-    return hasOnlyOneDirectoryLevel && relativeFilePath.endsWith(extensionPattern);
-  }
-  
-  // 检查是否是特定子目录文件模式（如 */a/.meta）
-  bool _isSpecificSubdirectoryFilePattern(String pattern) {
-    final hasStarSlash = pattern.startsWith('*/') || pattern.startsWith('*' + Platform.pathSeparator);
-    final hasDotExtension = pattern.contains('/.') || pattern.contains(Platform.pathSeparator + '.');
-    return hasStarSlash && hasDotExtension;
-  }
-  
-  // 匹配特定子目录文件模式（如 */a/.meta）
-  bool _matchSpecificSubdirectoryFilePattern(String pattern, String relativeFilePath) {
-    // 使用路径分隔符分割
-    final separator = pattern.contains('/') ? '/' : Platform.pathSeparator;
-    final patternParts = pattern.split(separator);
-    
-    if (patternParts.length < 3) return false;
-    
-    final targetDir = patternParts[1];
-    final extensionPattern = patternParts.last;
-    
-    final filePathParts = relativeFilePath.split(Platform.pathSeparator);
-    
-    // 检查路径长度是否符合
-    if (filePathParts.length < 2) return false;
-    
-    // 检查是否在指定的子目录中
-    if (filePathParts[0] != targetDir) return false;
-    
-    // 检查是否在直接子目录中（不包含更深的子目录）
-    if (filePathParts.length > 2) {
-      // 如果有更多目录部分，说明在更深的子目录中，不匹配
-      return false;
-    }
-    
-    // 检查文件扩展名
-    final targetExtension = extensionPattern.startsWith('.') ? extensionPattern : '.' + extensionPattern;
-    return relativeFilePath.endsWith(targetExtension);
   }
   
   // 规范化路径
@@ -225,7 +267,7 @@ class CopyLogBroadcaster {
   }
 }
 
-// 屏蔽路径子界面
+// 排除路径子界面
 class ExcludedPathsScreen extends StatefulWidget {
   final CopyConfig config;
   final VoidCallback onConfigChanged;
@@ -657,7 +699,7 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
           return AlertDialog(
-            title: const Text('自定义屏蔽规则'),
+            title: const Text('自定义排除规则'),
             content: Container(
               width: 500,
               constraints: const BoxConstraints(maxHeight: 400),
@@ -683,9 +725,8 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        _buildRuleItem('*.json', '递归屏蔽所有子目录下的json文件'),
-                        _buildRuleItem('*/.json', '仅屏蔽直接子目录下的json文件'),
-                        _buildRuleItem('*/a/.meta', '屏蔽a目录下的meta文件'),
+                        _buildRuleItem('*.json', '排除源目录及其所有子目录下的 .json 文件'),
+                        _buildRuleItem('*/a/*.meta', '排除a目录下的所有 .meta 文件'),
                       ],
                     ),
                   ),
@@ -857,7 +898,7 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('屏蔽路径管理'),
+        title: const Text('排除路径管理'),
         backgroundColor: MorandiColors.buttonPrimary.color,
         foregroundColor: MorandiColors.buttonText.color,
       ),
@@ -904,7 +945,7 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
             ),
             const SizedBox(height: 16),
 
-            // 屏蔽路径列表
+            // 排除路径列表
             Expanded(
               child: Container(
                 decoration: BoxDecoration(
@@ -917,7 +958,7 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '屏蔽路径列表',
+                      '排除路径列表',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -937,7 +978,7 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
                               border: Border.all(color: MorandiColors.border.color),
                             ),
                             child: Text(
-                              '没有设置屏蔽路径',
+                              '没有设置排除路径',
                               style: TextStyle(
                                 fontSize: 16,
                                 color: MorandiColors.textSecondary.color,
@@ -1240,7 +1281,7 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
       _currentConfigIndex = currentIndex;
       _updateControllers();
       
-      // 对每个配置的屏蔽路径进行排序
+      // 对每个配置的排除路径进行排序
       for (final config in _copyConfigs) {
         config.excludedPaths.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
       }
@@ -2307,9 +2348,9 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                     ),
                     const SizedBox(height: 20),
 
-                    // 屏蔽路径区
+                    // 排除路径区
                     _buildSection(
-                      title: '屏蔽路径',
+                      title: '排除路径',
                       backgroundColor: MorandiColors.excludeArea.color,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2318,7 +2359,7 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
                               const Text(
-                                '设置需要屏蔽的文件或目录',
+                                '设置需要排除的文件或目录',
                                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                               ),
                               Row(
@@ -2354,7 +2395,7 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                                 border: Border.all(color: MorandiColors.border.color),
                               ),
                               child: Text(
-                                '没有设置屏蔽路径',
+                                '没有设置排除路径',
                                 style: TextStyle(color: MorandiColors.textSecondary.color),
                               ),
                             )
@@ -2367,33 +2408,51 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                                 border: Border.all(color: MorandiColors.border.color),
                               ),
                               child: ListView.builder(
-                                shrinkWrap: true,
-                                itemCount: currentConfig.excludedPaths.length,
-                                itemBuilder: (context, index) {
-                                  final excludedPath = currentConfig.excludedPaths[index];
+                              shrinkWrap: true,
+                              itemCount: currentConfig.excludedPaths.length,
+                              itemBuilder: (context, index) {
+                                final excludedPath = currentConfig.excludedPaths[index];
+                                
+                                // 判断是否是通配符规则
+                                final isWildcardRule = excludedPath.startsWith('*.') || 
+                                    excludedPath.startsWith('*/') ||
+                                    excludedPath.startsWith('*\\');
+                                
+                                String displayText;
+                                
+                                if (isWildcardRule) {
+                                  // 通配符规则 - 直接显示规则
+                                  displayText = excludedPath;
+                                } else {
+                                  // 普通路径 - 显示相对路径
                                   final relativePath = currentConfig.sourceDirectory != null
                                       ? path.relative(excludedPath, from: currentConfig.sourceDirectory!)
                                       : excludedPath;
-                                  return ListTile(
-                                    title: Text(
-                                      relativePath,
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: MorandiColors.textPrimary.color,
-                                      ),
+                                  displayText = relativePath;
+                                }
+                                
+                                return ListTile(
+                                  title: Text(
+                                    displayText,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: isWildcardRule 
+                                          ? Colors.orange[700] 
+                                          : MorandiColors.textPrimary.color,
                                     ),
-                                    trailing: IconButton(
-                                      icon: const Icon(Icons.delete, size: 18),
-                                      onPressed: () => _removeExcludedPath(index),
-                                      color: Colors.red[400],
-                                      padding: EdgeInsets.zero,
-                                      constraints: const BoxConstraints(),
-                                    ),
-                                    dense: true,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                                  );
-                                },
-                              ),
+                                  ),
+                                  trailing: IconButton(
+                                    icon: const Icon(Icons.delete, size: 18),
+                                    onPressed: () => _removeExcludedPath(index),
+                                    color: Colors.red[400],
+                                    padding: EdgeInsets.zero,
+                                    constraints: const BoxConstraints(),
+                                  ),
+                                  dense: true,
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                );
+                              },
+                            ),
                             ),
                         ],
                       ),
