@@ -8,6 +8,131 @@ import 'package:path/path.dart' as path;
 import 'package:url_launcher/url_launcher.dart';
 import 'colors.dart';
 
+// 通配符路径匹配器
+class PathMatcher {
+  final String pattern;
+  final String sourceDirectory;
+  
+  PathMatcher(this.pattern, this.sourceDirectory);
+  
+  // 检查文件路径是否匹配模式
+  bool matches(String filePath) {
+    if (pattern.isEmpty) return false;
+    
+    // 规范化路径
+    final normalizedPattern = _normalizePath(pattern);
+    final normalizedFilePath = _normalizePath(filePath);
+    
+    // 判断是哪种模式
+    if (_isRecursiveFilePattern(normalizedPattern)) {
+      // 递归文件模式 - 需要检查是否在源目录下
+      final relativeFilePath = _getRelativePath(normalizedFilePath);
+      if (relativeFilePath == null) return false;
+      return _matchRecursiveFilePattern(normalizedPattern, relativeFilePath);
+    } else if (_isDirectSubdirectoryFilePattern(normalizedPattern)) {
+      // 直接子目录文件模式 - 需要检查是否在源目录下
+      final relativeFilePath = _getRelativePath(normalizedFilePath);
+      if (relativeFilePath == null) return false;
+      return _matchDirectSubdirectoryFilePattern(normalizedPattern, relativeFilePath);
+    } else if (_isSpecificSubdirectoryFilePattern(normalizedPattern)) {
+      // 特定子目录文件模式 - 需要检查是否在源目录下
+      final relativeFilePath = _getRelativePath(normalizedFilePath);
+      if (relativeFilePath == null) return false;
+      return _matchSpecificSubdirectoryFilePattern(normalizedPattern, relativeFilePath);
+    } else {
+      // 传统的前缀匹配 - 不需要检查源目录
+      return normalizedFilePath.startsWith(normalizedPattern);
+    }
+  }
+  
+  // 检查是否是递归文件模式（如 *.json）
+  bool _isRecursiveFilePattern(String pattern) {
+    return pattern.startsWith('*.') && !pattern.contains('/') && !pattern.contains(Platform.pathSeparator);
+  }
+  
+  // 匹配递归文件模式（如 *.json）
+  bool _matchRecursiveFilePattern(String pattern, String relativeFilePath) {
+    final extension = pattern.substring(1); // 去掉 * 号
+    return relativeFilePath.endsWith(extension);
+  }
+  
+  // 检查是否是直接子目录文件模式（如 */.json）
+  bool _isDirectSubdirectoryFilePattern(String pattern) {
+    return (pattern.startsWith('*/.') || pattern.startsWith('*' + Platform.pathSeparator + '.')) && pattern.length > 3;
+  }
+  
+  // 匹配直接子目录文件模式（如 */.json）
+  bool _matchDirectSubdirectoryFilePattern(String pattern, String relativeFilePath) {
+    // 从模式中提取扩展名
+    final extensionPattern = pattern.startsWith('*/.') ? pattern.substring(2) : pattern.substring(3);
+    final parts = relativeFilePath.split(Platform.pathSeparator);
+    
+    // 必须至少有一个目录层级（源目录的直接子目录）
+    if (parts.length < 2) return false;
+    
+    // 检查是否在直接子目录中（只有一个目录层级，不包含更深的子目录）
+    final hasOnlyOneDirectoryLevel = parts.length == 2 || (parts.length > 2 && !parts.sublist(1, parts.length - 1).any((part) => part.isNotEmpty));
+    
+    return hasOnlyOneDirectoryLevel && relativeFilePath.endsWith(extensionPattern);
+  }
+  
+  // 检查是否是特定子目录文件模式（如 */a/.meta）
+  bool _isSpecificSubdirectoryFilePattern(String pattern) {
+    final hasStarSlash = pattern.startsWith('*/') || pattern.startsWith('*' + Platform.pathSeparator);
+    final hasDotExtension = pattern.contains('/.') || pattern.contains(Platform.pathSeparator + '.');
+    return hasStarSlash && hasDotExtension;
+  }
+  
+  // 匹配特定子目录文件模式（如 */a/.meta）
+  bool _matchSpecificSubdirectoryFilePattern(String pattern, String relativeFilePath) {
+    // 使用路径分隔符分割
+    final separator = pattern.contains('/') ? '/' : Platform.pathSeparator;
+    final patternParts = pattern.split(separator);
+    
+    if (patternParts.length < 3) return false;
+    
+    final targetDir = patternParts[1];
+    final extensionPattern = patternParts.last;
+    
+    final filePathParts = relativeFilePath.split(Platform.pathSeparator);
+    
+    // 检查路径长度是否符合
+    if (filePathParts.length < 2) return false;
+    
+    // 检查是否在指定的子目录中
+    if (filePathParts[0] != targetDir) return false;
+    
+    // 检查是否在直接子目录中（不包含更深的子目录）
+    if (filePathParts.length > 2) {
+      // 如果有更多目录部分，说明在更深的子目录中，不匹配
+      return false;
+    }
+    
+    // 检查文件扩展名
+    final targetExtension = extensionPattern.startsWith('.') ? extensionPattern : '.' + extensionPattern;
+    return relativeFilePath.endsWith(targetExtension);
+  }
+  
+  // 规范化路径
+  String _normalizePath(String filePath) {
+    return path.normalize(filePath);
+  }
+  
+  // 获取相对于源目录的路径
+  String? _getRelativePath(String filePath) {
+    try {
+      final relative = path.relative(filePath, from: sourceDirectory);
+      // 检查路径是否真的在源目录下（不以 .. 开头）
+      if (relative.startsWith('..') || path.isAbsolute(relative)) {
+        return null;
+      }
+      return relative;
+    } catch (e) {
+      return null;
+    }
+  }
+}
+
 // 拷贝日志条目类
 class CopyLogEntry {
   final DateTime timestamp;
@@ -523,6 +648,205 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
     widget.onConfigChanged();
   }
 
+  void _showCustomRulesDialog() {
+    final TextEditingController ruleController = TextEditingController();
+    final List<String> tempRules = List.from(widget.config.excludedPaths);
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('自定义屏蔽规则'),
+            content: Container(
+              width: 500,
+              constraints: const BoxConstraints(maxHeight: 400),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 规则说明
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: MorandiColors.executeArea.color,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '规则说明：',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: MorandiColors.textPrimary.color,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        _buildRuleItem('*.json', '递归屏蔽所有子目录下的json文件'),
+                        _buildRuleItem('*/.json', '仅屏蔽直接子目录下的json文件'),
+                        _buildRuleItem('*/a/.meta', '屏蔽a目录下的meta文件'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 添加新规则
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: ruleController,
+                          decoration: InputDecoration(
+                            hintText: '输入规则，如：*.json',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: () {
+                          if (ruleController.text.trim().isNotEmpty) {
+                            final newRule = ruleController.text.trim();
+                            if (!tempRules.contains(newRule)) {
+                              setDialogState(() {
+                                tempRules.add(newRule);
+                              });
+                              ruleController.clear();
+                            }
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: MorandiColors.buttonPrimary.color,
+                          foregroundColor: MorandiColors.buttonText.color,
+                        ),
+                        child: const Text('添加'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 规则列表
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: MorandiColors.border.color),
+                      ),
+                      child: tempRules.isEmpty
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Text(
+                                  '暂无自定义规则',
+                                  style: TextStyle(
+                                    color: MorandiColors.textSecondary.color,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: tempRules.length,
+                              itemBuilder: (context, index) {
+                                final rule = tempRules[index];
+                                return ListTile(
+                                  dense: true,
+                                  title: Text(
+                                    rule,
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                  trailing: IconButton(
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                      size: 20,
+                                    ),
+                                    onPressed: () {
+                                      setDialogState(() {
+                                        tempRules.removeAt(index);
+                                      });
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    widget.config.excludedPaths.clear();
+                    widget.config.excludedPaths.addAll(tempRules);
+                    _sortExcludedPaths();
+                  });
+                  widget.onConfigChanged();
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: MorandiColors.buttonPrimary.color,
+                  foregroundColor: MorandiColors.buttonText.color,
+                ),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildRuleItem(String rule, String description) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: MorandiColors.buttonPrimary.color,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              rule,
+              style: TextStyle(
+                color: MorandiColors.buttonText.color,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              description,
+              style: TextStyle(
+                fontSize: 13,
+                color: MorandiColors.textPrimary.color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -559,6 +883,12 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
+                _buildActionButton(
+                  icon: Icons.edit,
+                  label: '自定义规则',
+                  onPressed: _showCustomRulesDialog,
+                ),
+                const SizedBox(width: 8),
                 _buildActionButton(
                   icon: Icons.folder,
                   label: '添加目录',
@@ -622,10 +952,32 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
                           itemCount: widget.config.excludedPaths.length,
                           itemBuilder: (context, index) {
                             final excludedPath = widget.config.excludedPaths[index];
-                            final relativePath = widget.config.sourceDirectory != null
-                                ? path.relative(excludedPath, from: widget.config.sourceDirectory!)
-                                : excludedPath;
-                            final fileName = path.basename(excludedPath);
+                            
+                            // 判断是否是通配符规则
+                            final isWildcardRule = excludedPath.startsWith('*.') || 
+                                excludedPath.startsWith('*/') ||
+                                excludedPath.startsWith('*\\');
+                            
+                            String displayName;
+                            String displaySubtitle;
+                            IconData displayIcon;
+                            
+                            if (isWildcardRule) {
+                              // 通配符规则
+                              displayName = excludedPath;
+                              displaySubtitle = '自定义规则';
+                              displayIcon = Icons.rule;
+                            } else {
+                              // 普通路径
+                              final relativePath = widget.config.sourceDirectory != null
+                                  ? path.relative(excludedPath, from: widget.config.sourceDirectory!)
+                                  : excludedPath;
+                              displayName = path.basename(excludedPath);
+                              displaySubtitle = relativePath;
+                              displayIcon = FileSystemEntity.typeSync(excludedPath) == FileSystemEntityType.directory
+                                  ? Icons.folder
+                                  : Icons.file_copy;
+                            }
                             
                             return Card(
                               margin: const EdgeInsets.only(bottom: 8),
@@ -635,23 +987,25 @@ class _ExcludedPathsScreenState extends State<ExcludedPathsScreen> {
                               ),
                               child: ListTile(
                                 leading: Icon(
-                                  FileSystemEntity.typeSync(excludedPath) == FileSystemEntityType.directory
-                                      ? Icons.folder
-                                      : Icons.file_copy,
-                                  color: MorandiColors.buttonPrimary.color,
+                                  displayIcon,
+                                  color: isWildcardRule 
+                                      ? Colors.orange 
+                                      : MorandiColors.buttonPrimary.color,
                                 ),
                                 title: Text(
-                                  fileName,
+                                  displayName,
                                   style: TextStyle(
                                     fontWeight: FontWeight.w500,
                                     color: MorandiColors.textPrimary.color,
                                   ),
                                 ),
                                 subtitle: Text(
-                                  relativePath,
+                                  displaySubtitle,
                                   style: TextStyle(
                                     fontSize: 12,
-                                    color: MorandiColors.textSecondary.color,
+                                    color: isWildcardRule 
+                                        ? Colors.orange[700] 
+                                        : MorandiColors.textSecondary.color,
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -1142,9 +1496,15 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
     _saveSettings();
   }
 
-  bool _shouldExclude(String filePath, List<String> excludedPaths) {
+  bool _shouldExclude(String filePath, List<String> excludedPaths, String sourceDirectory) {
     return excludedPaths.any((excluded) {
-      return filePath.startsWith(excluded);
+      try {
+        final matcher = PathMatcher(excluded, sourceDirectory);
+        return matcher.matches(filePath);
+      } catch (e) {
+        // 如果匹配器失败，回退到传统的前缀匹配
+        return filePath.startsWith(excluded);
+      }
     });
   }
 
@@ -1243,7 +1603,7 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
       final relativePath = path.relative(entity.path, from: config.sourceDirectory!);
       final destPath = path.join(config.destinationDirectory!, relativePath);
 
-      if (_shouldExclude(entity.path, config.excludedPaths)) {
+      if (_shouldExclude(entity.path, config.excludedPaths, config.sourceDirectory!)) {
         setState(() {
           _copyStatus = '跳过: $relativePath';
         });
