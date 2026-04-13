@@ -1530,6 +1530,203 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
     });
   }
 
+  void _showCustomRulesDialog() {
+    final TextEditingController ruleController = TextEditingController();
+    final List<String> tempRules = List.from(_copyConfigs[_currentConfigIndex].excludedPaths);
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            title: const Text('自定义排除规则'),
+            content: Container(
+              width: 500,
+              constraints: const BoxConstraints(maxHeight: 400),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 规则说明
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: MorandiColors.executeArea.color,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '规则说明：',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: MorandiColors.textPrimary.color,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        _buildRuleItem('*.json', '排除源目录及其所有子目录下的 .json 文件'),
+                        _buildRuleItem('*/a/*.meta', '排除a目录下的所有 .meta 文件'),
+                        _buildRuleItem('*/raw-assets/*.png', '排除raw-assets目录及其子目录下的 .png 文件'),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
+                  // 添加新规则
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: ruleController,
+                          decoration: InputDecoration(
+                            hintText: '输入规则，如：*.json',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ElevatedButton(
+                        onPressed: () {
+                          if (ruleController.text.trim().isNotEmpty) {
+                            final newRule = ruleController.text.trim();
+                            if (!tempRules.contains(newRule)) {
+                              setDialogState(() {
+                                tempRules.add(newRule);
+                              });
+                              ruleController.clear();
+                            }
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: MorandiColors.buttonPrimary.color,
+                          foregroundColor: MorandiColors.buttonText.color,
+                        ),
+                        child: const Text('添加'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  // 规则列表
+                  Expanded(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: MorandiColors.border.color),
+                      ),
+                      child: tempRules.isEmpty
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(16),
+                                child: Text(
+                                  '没有设置规则',
+                                  style: TextStyle(color: MorandiColors.textSecondary.color),
+                                ),
+                              ),
+                            )
+                          : ListView.builder(
+                              shrinkWrap: true,
+                              itemCount: tempRules.length,
+                              itemBuilder: (context, index) {
+                                final rule = tempRules[index];
+                                return ListTile(
+                                  dense: true,
+                                  title: Text(
+                                    rule,
+                                    style: const TextStyle(fontSize: 14),
+                                  ),
+                                  trailing: IconButton(
+                                    icon: const Icon(
+                                      Icons.delete_outline,
+                                      color: Colors.red,
+                                      size: 20,
+                                    ),
+                                    onPressed: () {
+                                      setDialogState(() {
+                                        tempRules.removeAt(index);
+                                      });
+                                    },
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('取消'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  setState(() {
+                    _copyConfigs[_currentConfigIndex].excludedPaths.clear();
+                    _copyConfigs[_currentConfigIndex].excludedPaths.addAll(tempRules);
+                    _sortExcludedPaths();
+                  });
+                  _saveSettings();
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: MorandiColors.buttonPrimary.color,
+                  foregroundColor: MorandiColors.buttonText.color,
+                ),
+                child: const Text('保存'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildRuleItem(String rule, String description) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+            decoration: BoxDecoration(
+              color: MorandiColors.buttonPrimary.color,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              rule,
+              style: TextStyle(
+                color: MorandiColors.buttonText.color,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              description,
+              style: TextStyle(
+                fontSize: 13,
+                color: MorandiColors.textPrimary.color,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _removeExcludedPath(int index) {
     setState(() {
       _copyConfigs[_currentConfigIndex].excludedPaths.removeAt(index);
@@ -2368,6 +2565,12 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                                     icon: Icons.visibility,
                                     label: '更好的查看',
                                     onPressed: () => _openExcludedPathsScreen(),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  _buildActionButton(
+                                    icon: Icons.edit,
+                                    label: '自定义规则',
+                                    onPressed: _showCustomRulesDialog,
                                   ),
                                   const SizedBox(width: 8),
                                   _buildActionButton(
