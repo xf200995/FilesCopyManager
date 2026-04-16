@@ -1104,6 +1104,8 @@ class CopyConfig {
   String? destinationDirectory;
   List<String> excludedPaths;
   bool shouldDeleteDestDir;
+  bool copyAllFiles;
+  List<String> selectedPaths;
 
   CopyConfig({
     required this.name,
@@ -1111,7 +1113,11 @@ class CopyConfig {
     this.destinationDirectory,
     List<String>? excludedPaths,
     this.shouldDeleteDestDir = false,
-  }) : excludedPaths = excludedPaths ?? [];
+    this.copyAllFiles = true,
+    List<String>? selectedPaths,
+  }) : 
+    excludedPaths = excludedPaths ?? [],
+    selectedPaths = selectedPaths ?? [];
 
   // 转换为JSON
   Map<String, dynamic> toJson() {
@@ -1121,6 +1127,8 @@ class CopyConfig {
       'destinationDirectory': destinationDirectory,
       'excludedPaths': excludedPaths,
       'shouldDeleteDestDir': shouldDeleteDestDir,
+      'copyAllFiles': copyAllFiles,
+      'selectedPaths': selectedPaths,
     };
   }
 
@@ -1132,6 +1140,8 @@ class CopyConfig {
       destinationDirectory: json['destinationDirectory'],
       excludedPaths: List<String>.from(json['excludedPaths'] ?? []),
       shouldDeleteDestDir: json['shouldDeleteDestDir'] ?? false,
+      copyAllFiles: json['copyAllFiles'] ?? true,
+      selectedPaths: List<String>.from(json['selectedPaths'] ?? []),
     );
   }
 }
@@ -1530,6 +1540,116 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
     });
   }
 
+  void _sortSelectedPaths() {
+    setState(() {
+      _copyConfigs[_currentConfigIndex].selectedPaths.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    });
+  }
+
+  Future<void> _addSelectedPath() async {
+    final currentConfig = _copyConfigs[_currentConfigIndex];
+    if (currentConfig.sourceDirectory == null) {
+      _showErrorDialog('请先选择源目录');
+      return;
+    }
+
+    final results = await getDirectoryPaths(initialDirectory: currentConfig.sourceDirectory);
+    if (results.isNotEmpty) {
+      final List<String> validPaths = [];
+      for (final path in results) {
+        // 确保路径不为空且在源目录下
+        if (path != null && path.startsWith(currentConfig.sourceDirectory!)) {
+          validPaths.add(path);
+        }
+      }
+      
+      if (validPaths.isNotEmpty) {
+        setState(() {
+          currentConfig.selectedPaths.addAll(validPaths);
+          _sortSelectedPaths();
+        });
+        _saveSettings();
+        
+        // 如果有无效路径，显示提示
+        if (validPaths.length < results.length) {
+          _showErrorDialog('部分路径不在源目录下，已忽略');
+        }
+      } else {
+        _showErrorDialog('请选择源目录下的路径');
+      }
+    }
+  }
+
+  Future<void> _addSelectedFile() async {
+    final currentConfig = _copyConfigs[_currentConfigIndex];
+    if (currentConfig.sourceDirectory == null) {
+      _showErrorDialog('请先选择源目录');
+      return;
+    }
+
+    final results = await openFiles(initialDirectory: currentConfig.sourceDirectory);
+    if (results.isNotEmpty) {
+      final List<String> validPaths = [];
+      for (final file in results) {
+        final filePath = file.path;
+        // 确保文件路径不为空且在源目录下
+        if (filePath.startsWith(currentConfig.sourceDirectory!)) {
+          validPaths.add(filePath);
+        }
+      }
+      
+      if (validPaths.isNotEmpty) {
+        setState(() {
+          currentConfig.selectedPaths.addAll(validPaths);
+          _sortSelectedPaths();
+        });
+        _saveSettings();
+        
+        // 如果有无效路径，显示提示
+        if (validPaths.length < results.length) {
+          _showErrorDialog('部分文件不在源目录下，已忽略');
+        }
+      } else {
+        _showErrorDialog('请选择源目录下的文件');
+      }
+    }
+  }
+
+  void _removeSelectedPath(int index) {
+    setState(() {
+      _copyConfigs[_currentConfigIndex].selectedPaths.removeAt(index);
+    });
+    _saveSettings();
+  }
+
+  // 判断一个路径是否等于另一个路径，或者在另一个路径之下
+  bool _isPathUnderOrEqual(String testPath, String parentPath) {
+    try {
+      // 规范化路径
+      final normalizedTestPath = path.normalize(testPath);
+      final normalizedParentPath = path.normalize(parentPath);
+      
+      // 如果路径完全相等
+      if (normalizedTestPath == normalizedParentPath) {
+        return true;
+      }
+      
+      // 检查是否在父路径之下
+      // 尝试获取相对路径
+      final relative = path.relative(normalizedTestPath, from: normalizedParentPath);
+      
+      // 如果相对路径不以 .. 开头，说明在父路径之下
+      return !relative.startsWith('..') && !path.isAbsolute(relative);
+    } catch (e) {
+      // 如果出错，回退到简单的字符串比较
+      final normalizedTestPath = path.normalize(testPath);
+      final normalizedParentPath = path.normalize(parentPath);
+      
+      return normalizedTestPath == normalizedParentPath || 
+          normalizedTestPath.startsWith(normalizedParentPath + Platform.pathSeparator);
+    }
+  }
+
   void _showCustomRulesDialog() {
     final TextEditingController ruleController = TextEditingController();
     final List<String> tempRules = List.from(_copyConfigs[_currentConfigIndex].excludedPaths);
@@ -1841,6 +1961,39 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
       final relativePath = path.relative(entity.path, from: config.sourceDirectory!);
       final destPath = path.join(config.destinationDirectory!, relativePath);
 
+      // 检查是否需要拷贝（如果不是拷贝所有文件）
+      if (!config.copyAllFiles) {
+        bool shouldCopy = false;
+        
+        // 检查文件或目录是否在选择的路径中，或者选择的路径在该目录之下
+        for (final selectedPath in config.selectedPaths) {
+          // 情况1：当前实体就是选择的路径
+          if (_isPathUnderOrEqual(entity.path, selectedPath)) {
+            shouldCopy = true;
+            break;
+          }
+          
+          // 情况2：选择的路径在当前实体之下（当前实体是一个目录，选择的路径是它的子路径）
+          if (entity is Directory && _isPathUnderOrEqual(selectedPath, entity.path)) {
+            shouldCopy = true;
+            break;
+          }
+        }
+        
+        if (!shouldCopy) {
+          setState(() {
+            _copyStatus = '跳过: $relativePath (未选中)';
+          });
+          CopyLogBroadcaster().updateState(CopyState(
+            isCopying: _isCopying,
+            copyStatus: _copyStatus,
+            hasCopyLog: _copyLog.isNotEmpty,
+          ));
+          continue;
+        }
+      }
+
+      // 检查是否应该排除
       if (_shouldExclude(entity.path, config.excludedPaths, config.sourceDirectory!)) {
         setState(() {
           _copyStatus = '跳过: $relativePath';
@@ -2540,6 +2693,121 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
                               ),
                             ],
                           ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // 选定子路径区
+                    _buildSection(
+                      title: '选定子路径',
+                      backgroundColor: MorandiColors.executeArea.color,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // 拷贝所有文件和目录选项
+                          Row(
+                            children: [
+                              Checkbox(
+                                value: currentConfig.copyAllFiles,
+                                onChanged: (value) {
+                                  setState(() {
+                                    currentConfig.copyAllFiles = value ?? true;
+                                  });
+                                  _saveSettings();
+                                },
+                              ),
+                              const Text(
+                                '拷贝所有文件和目录',
+                                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          
+                          // 当未勾选时显示的选项
+                          if (!currentConfig.copyAllFiles)
+                            Column(
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      '设置需要拷贝的文件或目录',
+                                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                                    ),
+                                    Row(
+                                      children: [
+                                        _buildActionButton(
+                                          icon: Icons.folder,
+                                          label: '添加目录',
+                                          onPressed: _addSelectedPath,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        _buildActionButton(
+                                          icon: Icons.file_copy,
+                                          label: '添加文件',
+                                          onPressed: _addSelectedFile,
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                                
+                                // 选择的文件和目录列表显示区
+                                if (currentConfig.selectedPaths.isEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: MorandiColors.border.color),
+                                    ),
+                                    child: Text(
+                                      '没有设置需要拷贝的文件或目录',
+                                      style: TextStyle(color: MorandiColors.textSecondary.color),
+                                    ),
+                                  )
+                                else
+                                  Container(
+                                    constraints: const BoxConstraints(maxHeight: 200),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: MorandiColors.border.color),
+                                    ),
+                                    child: ListView.builder(
+                                      shrinkWrap: true,
+                                      itemCount: currentConfig.selectedPaths.length,
+                                      itemBuilder: (context, index) {
+                                        final selectedPath = currentConfig.selectedPaths[index];
+                                        final relativePath = currentConfig.sourceDirectory != null
+                                            ? path.relative(selectedPath, from: currentConfig.sourceDirectory!)
+                                            : selectedPath;
+                                        return ListTile(
+                                          title: Text(
+                                            relativePath,
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              color: MorandiColors.textPrimary.color,
+                                            ),
+                                          ),
+                                          trailing: IconButton(
+                                            icon: const Icon(Icons.delete, size: 18),
+                                            onPressed: () => _removeSelectedPath(index),
+                                            color: Colors.red[400],
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints(),
+                                          ),
+                                          dense: true,
+                                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                              ],
+                            ),
                         ],
                       ),
                     ),
