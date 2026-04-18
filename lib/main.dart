@@ -20,7 +20,7 @@ class PathMatcher {
     if (pattern.isEmpty) return false;
     
     // 规范化路径
-    final normalizedPattern = _normalizePath(pattern);
+    final normalizedPattern = _normalizePattern(pattern);
     final normalizedFilePath = _normalizePath(filePath);
     
     // 获取相对于源目录的路径
@@ -31,7 +31,38 @@ class PathMatcher {
     }
     
     // 使用新的通用匹配逻辑
-    return _matchPattern(normalizedPattern, relativeFilePath);
+    final result = _matchPattern(normalizedPattern, relativeFilePath);
+    
+    // 调试输出
+    // print('[PathMatcher] pattern="$pattern", filePath="$filePath", relative="$relativeFilePath", match=$result');
+    
+    return result;
+  }
+  
+  // 规范化排除模式
+  String _normalizePattern(String pattern) {
+    var normalized = path.normalize(pattern);
+    
+    // 统一路径分隔符为当前平台的分隔符
+    normalized = normalized.replaceAll('/', Platform.pathSeparator);
+    normalized = normalized.replaceAll('\\', Platform.pathSeparator);
+    
+    // 如果是绝对路径且在源目录下，转换为相对路径
+    if (path.isAbsolute(normalized)) {
+      final relative = path.relative(normalized, from: sourceDirectory);
+      if (!relative.startsWith('..') && !path.isAbsolute(relative)) {
+        normalized = relative;
+      }
+    }
+    
+    // 移除开头的 ./ 或 .\
+    if (normalized.startsWith('.${Platform.pathSeparator}')) {
+      normalized = normalized.substring(2);
+    } else if (normalized == '.' || normalized == './' || normalized == '.\\') {
+      normalized = '';
+    }
+    
+    return normalized;
   }
   
   // 通用匹配逻辑
@@ -41,10 +72,9 @@ class PathMatcher {
       return _matchSimpleRecursivePattern(pattern, relativeFilePath);
     }
     
-    // 处理更通用的模式
-    final separator = pattern.contains('/') ? '/' : Platform.pathSeparator;
-    final patternParts = pattern.split(separator);
-    final filePathParts = relativeFilePath.split(Platform.pathSeparator);
+    // 处理更通用的模式 - 统一使用平台分隔符
+    final patternParts = pattern.split(Platform.pathSeparator).where((p) => p.isNotEmpty).toList();
+    final filePathParts = relativeFilePath.split(Platform.pathSeparator).where((p) => p.isNotEmpty).toList();
     
     // 模式必须至少有一个部分
     if (patternParts.isEmpty) return false;
@@ -92,9 +122,28 @@ class PathMatcher {
         return _matchFromPosition(remainingPatternParts, filePathParts, 0);
       }
     } else {
-      // 从开头开始匹配
-      return _matchFromPosition(patternParts, filePathParts, 0);
+      // 从开头开始匹配 - 检查是否是前缀匹配（用于目录排除）
+      return _matchFromStart(patternParts, filePathParts);
     }
+  }
+  
+  // 从开头开始匹配模式（用于目录排除的前缀匹配）
+  bool _matchFromStart(List<String> patternParts, List<String> filePathParts) {
+    // 如果文件路径部分比模式部分少，无法匹配
+    if (filePathParts.length < patternParts.length) {
+      return false;
+    }
+    
+    // 检查模式部分是否与文件路径的开头部分匹配
+    for (int i = 0; i < patternParts.length; i++) {
+      if (!_matchPart(patternParts[i], filePathParts[i])) {
+        return false;
+      }
+    }
+    
+    // 所有模式部分都匹配，说明文件路径以该模式为前缀
+    // 这意味着文件在被排除的目录下
+    return true;
   }
   
   // 从指定位置开始匹配模式
