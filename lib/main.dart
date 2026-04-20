@@ -3,10 +3,58 @@ import 'dart:convert';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart' as path;
 import 'package:url_launcher/url_launcher.dart';
 import 'colors.dart';
+
+// 配置文件管理器
+class ConfigFileManager {
+  static const String _configDirName = 'config';
+  static const String _configFileName = 'all_config.json';
+
+  static String get _appRootDir {
+    if (Platform.isWindows) {
+      return path.dirname(Platform.resolvedExecutable);
+    }
+    return Directory.current.path;
+  }
+
+  static String get _configDirPath => path.join(_appRootDir, _configDirName);
+
+  static String get configFilePath => path.join(_configDirPath, _configFileName);
+
+  static Future<void> ensureConfigDirExists() async {
+    final dir = Directory(_configDirPath);
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+      print('创建配置目录: $_configDirPath');
+    }
+  }
+
+  static Future<Map<String, dynamic>?> loadConfig() async {
+    final file = File(configFilePath);
+    if (await file.exists()) {
+      try {
+        final content = await file.readAsString();
+        print('从文件加载配置: $configFilePath');
+        return jsonDecode(content) as Map<String, dynamic>;
+      } catch (e) {
+        print('读取配置文件失败: $e');
+        return null;
+      }
+    }
+    print('配置文件不存在: $configFilePath');
+    return null;
+  }
+
+  static Future<void> saveConfig(Map<String, dynamic> data) async {
+    await ensureConfigDirExists();
+    final file = File(configFilePath);
+    final content = jsonEncode(data);
+    await file.writeAsString(content);
+    print('保存配置到文件: $configFilePath');
+  }
+}
 
 // 通配符路径匹配器
 class PathMatcher {
@@ -1322,22 +1370,26 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
   }
 
   Future<void> _loadSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    // 输出SharedPreferences存储路径
-    print('SharedPreferences存储路径: ${prefs.getKeys()}');
-    final configsJson = prefs.getString('copyConfigs');
-    final currentIndex = prefs.getInt('currentConfigIndex') ?? 0;
+    final configData = await ConfigFileManager.loadConfig();
     
     setState(() {
-      if (configsJson != null) {
-        final List<dynamic> jsonList = jsonDecode(configsJson);
-        _copyConfigs = jsonList.map((json) => CopyConfig.fromJson(json)).toList();
+      if (configData != null) {
+        final configsJson = configData['copyConfigs'];
+        final currentIndex = configData['currentConfigIndex'] ?? 0;
+        
+        if (configsJson != null) {
+          final List<dynamic> jsonList = configsJson;
+          _copyConfigs = jsonList.map((json) => CopyConfig.fromJson(json)).toList();
+        } else {
+          _copyConfigs = [CopyConfig(name: '配置1')];
+        }
+        
+        _currentConfigIndex = currentIndex;
       } else {
-        // 默认创建一个配置
         _copyConfigs = [CopyConfig(name: '配置1')];
+        _currentConfigIndex = 0;
       }
       
-      _currentConfigIndex = currentIndex;
       _updateControllers();
       
       // 对每个配置的排除路径进行排序
@@ -1348,11 +1400,11 @@ class _FileCopyManagerScreenState extends State<FileCopyManagerScreen> {
   }
 
   Future<void> _saveSettings() async {
-    final prefs = await SharedPreferences.getInstance();
-    print('SharedPreferences存储路径: ${prefs.getKeys()}');
-    final configsJson = jsonEncode(_copyConfigs.map((config) => config.toJson()).toList());
-    await prefs.setString('copyConfigs', configsJson);
-    await prefs.setInt('currentConfigIndex', _currentConfigIndex);
+    final configData = {
+      'copyConfigs': _copyConfigs.map((config) => config.toJson()).toList(),
+      'currentConfigIndex': _currentConfigIndex,
+    };
+    await ConfigFileManager.saveConfig(configData);
   }
 
   void _updateControllers() {
